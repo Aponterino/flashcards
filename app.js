@@ -241,7 +241,7 @@ function parseXml(text) {
       if (content) {
         if (index % 2 === 0) {
           cards.push({ front: content, back: "" });
-        } else if (cards[index - 1]) {
+        } else if (cards.length > 0) {
           cards[cards.length - 1].back = content;
         }
       }
