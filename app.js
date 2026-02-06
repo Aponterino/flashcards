@@ -1,5 +1,13 @@
 const STORAGE_KEY = "studyBuddyFlashcards";
 
+function generateId() {
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+
 const cardForm = document.getElementById("cardForm");
 const frontInput = document.getElementById("frontInput");
 const backInput = document.getElementById("backInput");
@@ -18,6 +26,7 @@ const sessionProgress = document.getElementById("sessionProgress");
 const sessionEmpty = document.getElementById("sessionEmpty");
 const clearAll = document.getElementById("clearAll");
 const importFile = document.getElementById("importFile");
+const importUpload = document.getElementById("importUpload");
 const importStatus = document.getElementById("importStatus");
 const exportJson = document.getElementById("exportJson");
 const exportCsv = document.getElementById("exportCsv");
@@ -25,35 +34,91 @@ const exportTsv = document.getElementById("exportTsv");
 const exportXml = document.getElementById("exportXml");
 const themeToggle = document.getElementById("themeToggle");
 const searchInput = document.getElementById("searchInput");
-const deckSearch = document.getElementById("deckSearch");
 const deckList = document.getElementById("deckList");
+const navHome = document.getElementById("navHome");
+const navDecks = document.getElementById("navDecks");
+const navDecksCaret = document.getElementById("navDecksCaret");
+const navSettings = document.getElementById("navSettings");
+const sidebarDeckList = document.getElementById("sidebarDeckList");
+const homeDecksSection = document.getElementById("homeDecksSection");
 const currentDeckName = document.getElementById("currentDeckName");
+const currentDeckMeta = document.getElementById("currentDeckMeta");
 const resumeDeck = document.getElementById("resumeDeck");
+const newDeckBtn = document.getElementById("newDeckBtn");
+const homeView = document.getElementById("homeView");
+const deckView = document.getElementById("deckView");
+const heroTitle = document.getElementById("heroTitle");
+const heroSubtitle = document.getElementById("heroSubtitle");
+const deckProgressRing = document.getElementById("deckProgressRing");
+const deckProgressLabel = document.getElementById("deckProgressLabel");
+const deckProgressMeta = document.getElementById("deckProgressMeta");
+const headerSummaryPanel = document.querySelector(".header-summary .summary-panel");
+const headerSummaryPrimaryLabel = document.getElementById("headerSummaryPrimaryLabel");
+const headerSummaryPrimaryValue = document.getElementById("headerSummaryPrimaryValue");
+const headerSummarySecondary = document.getElementById("headerSummarySecondary");
+const headerSummarySecondaryLabel = document.getElementById("headerSummarySecondaryLabel");
+const headerSummarySecondaryValue = document.getElementById("headerSummarySecondaryValue");
+const deckHeaderActions = document.getElementById("deckHeaderActions");
 const importTrigger = document.getElementById("importTrigger");
 const exportTrigger = document.getElementById("exportTrigger");
 const importModal = document.getElementById("importModal");
 const exportModal = document.getElementById("exportModal");
+const settingsModal = document.getElementById("settingsModal");
 
 let state = loadState();
 let sessionQueue = [];
 let sessionIndex = 0;
+let currentView = "home";
+let sidebarDecksExpanded = true;
+
+function normalizeDeck(rawDeck, index) {
+  const fallbackName = `Deck ${index + 1}`;
+  const rawCards = Array.isArray(rawDeck?.cards) ? rawDeck.cards : [];
+  const rawName = rawDeck?.name ?? rawDeck?.deckName ?? rawDeck?.title;
+
+  return {
+    id: rawDeck?.id || generateId(),
+    name: String(rawName || fallbackName).trim() || fallbackName,
+    cards: rawCards.map(normalizeCardPayload).filter(Boolean),
+    lastOpenedAt: rawDeck?.lastOpenedAt || new Date().toISOString(),
+  };
+}
+
+function normalizeState(rawState) {
+  const input = rawState && typeof rawState === "object" ? rawState : {};
+  const decks = Array.isArray(input.decks) ? input.decks.map(normalizeDeck) : [];
+  const normalizedDecks = decks.length > 0 ? decks : [createDeck("Starter Deck")];
+  const dailyLimitValue = Number.parseInt(input.dailyLimit, 10);
+  const activeDeckId =
+    normalizedDecks.find((deck) => deck.id === input.activeDeckId)?.id || normalizedDecks[0].id;
+
+  return {
+    decks: normalizedDecks,
+    activeDeckId,
+    dailyLimit:
+      Number.isFinite(dailyLimitValue) && dailyLimitValue > 0 ? dailyLimitValue : 10,
+    theme: input.theme === "dark" ? "dark" : "light",
+  };
+}
 
 function loadState() {
+  const fallback = normalizeState(null);
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    return JSON.parse(stored);
+  if (!stored) {
+    return fallback;
   }
-  return {
-    decks: [createDeck("Starter Deck")],
-    activeDeckId: null,
-    dailyLimit: 10,
-    theme: "light",
-  };
+
+  try {
+    return normalizeState(JSON.parse(stored));
+  } catch (error) {
+    console.warn("Failed to parse saved flashcard data, resetting state.", error);
+    return fallback;
+  }
 }
 
 function createDeck(name) {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     name,
     cards: [],
     lastOpenedAt: new Date().toISOString(),
@@ -111,37 +176,63 @@ function getDueCards(deck) {
   return deck.cards.filter((card) => new Date(card.dueDate) <= today);
 }
 
+function getDecksByLastOpened() {
+  return [...state.decks].sort((a, b) => new Date(b.lastOpenedAt) - new Date(a.lastOpenedAt));
+}
+
+function updateHeaderSummary() {
+  if (currentView === "home") {
+    headerSummaryPrimaryLabel.textContent = "Total Decks";
+    headerSummaryPrimaryValue.textContent = state.decks.length;
+    headerSummarySecondary.classList.add("hidden");
+    headerSummaryPanel.classList.add("single-metric");
+    return;
+  }
+
+  const deck = getActiveDeck();
+  headerSummaryPrimaryLabel.textContent = "Cards Total";
+  headerSummaryPrimaryValue.textContent = deck.cards.length;
+  headerSummarySecondaryLabel.textContent = "Due Today";
+  headerSummarySecondaryValue.textContent = getDueCards(deck).length;
+  headerSummarySecondary.classList.remove("hidden");
+  headerSummaryPanel.classList.remove("single-metric");
+}
+
 function updateSummary() {
   const deck = getActiveDeck();
   totalCount.textContent = deck.cards.length;
   dueCount.textContent = getDueCards(deck).length;
   dailyLimit.value = state.dailyLimit;
   dailyLimitLabel.textContent = state.dailyLimit;
+  updateHeaderSummary();
 }
 
 function renderDeckSummary() {
-  const deck = getActiveDeck();
-  currentDeckName.textContent = deck.name;
-  resumeDeck.textContent = deck.cards.length === 0 ? "Start Deck" : "Resume Deck";
-}
-
-function renderDeckList() {
-  const query = deckSearch.value.trim().toLowerCase();
-  const sortedDecks = [...state.decks].sort(
-    (a, b) => new Date(b.lastOpenedAt) - new Date(a.lastOpenedAt)
-  );
-
-  deckList.innerHTML = "";
-  const filtered = sortedDecks.filter((deck) =>
-    deck.name.toLowerCase().includes(query)
-  );
-
-  if (filtered.length === 0) {
-    deckList.innerHTML = "<p class='muted'>No decks match your search.</p>";
+  const [lastOpenedDeck] = getDecksByLastOpened();
+  if (!lastOpenedDeck) {
+    currentDeckName.textContent = "Starter Deck";
+    currentDeckMeta.textContent = "0 cards";
+    resumeDeck.textContent = "Open Deck";
     return;
   }
 
-  filtered.forEach((deck) => {
+  currentDeckName.textContent = lastOpenedDeck.name;
+  currentDeckMeta.textContent = `${lastOpenedDeck.cards.length} cards`;
+  resumeDeck.textContent = lastOpenedDeck.cards.length === 0 ? "Open Deck" : "Continue Deck";
+}
+
+function renderDeckList() {
+  const sortedDecks = getDecksByLastOpened();
+  const activeDeck = getActiveDeck();
+  const remainingDecks = sortedDecks.filter((deck) => deck.id !== activeDeck.id);
+
+  deckList.innerHTML = "";
+  if (remainingDecks.length === 0) {
+    deckList.innerHTML = "<p class='muted'>No other decks yet. Start a new deck to begin.</p>";
+    return;
+  }
+
+  remainingDecks.forEach((deck) => {
     const item = document.createElement("div");
     item.className = "deck-item";
 
@@ -155,16 +246,130 @@ function renderDeckList() {
     info.append(name, meta);
 
     const action = document.createElement("button");
-    action.className = deck.id === state.activeDeckId ? "primary" : "ghost";
-    action.textContent = deck.id === state.activeDeckId ? "Active" : "Open";
+    action.className = "ghost";
+    action.textContent = "Open";
     action.addEventListener("click", () => {
-      updateDeckLastOpened(deck);
-      renderAll();
+      openDeck(deck.id);
     });
 
     item.append(info, action);
     deckList.appendChild(item);
   });
+}
+
+function renderDeckWorkspace() {
+  updateSummary();
+  updateDeckProgressTracker();
+  renderCards();
+}
+
+function resetSessionUi() {
+  sessionQueue = [];
+  sessionIndex = 0;
+  session.classList.add("hidden");
+  sessionEmpty.classList.remove("hidden");
+  showAnswer.classList.remove("hidden");
+  answerArea.classList.add("hidden");
+  updateDeckProgressTracker();
+}
+
+function updateSidebarState() {
+  navHome.classList.toggle("active", currentView === "home");
+  navDecks.classList.toggle("active", currentView === "deck" || sidebarDecksExpanded);
+}
+
+function setSidebarDecksExpanded(expanded) {
+  sidebarDecksExpanded = expanded;
+  sidebarDeckList.classList.toggle("hidden", !expanded);
+  navDecks.setAttribute("aria-expanded", expanded ? "true" : "false");
+  navDecksCaret.textContent = expanded ? "v" : ">";
+}
+
+function renderSidebarDecks() {
+  const sortedDecks = getDecksByLastOpened();
+  sidebarDeckList.innerHTML = "";
+
+  sortedDecks.forEach((deck) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "nav-sublink";
+    if (deck.id === state.activeDeckId) {
+      row.classList.add("active");
+    }
+
+    const name = document.createElement("span");
+    name.textContent = deck.name;
+    const count = document.createElement("span");
+    count.className = "muted";
+    count.textContent = deck.cards.length;
+
+    row.append(name, count);
+    row.addEventListener("click", () => {
+      openDeck(deck.id);
+    });
+    sidebarDeckList.appendChild(row);
+  });
+}
+
+function updateDeckProgressTracker() {
+  const total = sessionQueue.length;
+  const completed = Math.min(sessionIndex, total);
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const radius = 52;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
+  deckProgressRing.style.strokeDasharray = `${circumference}`;
+  deckProgressRing.style.strokeDashoffset = `${offset}`;
+
+  deckProgressLabel.textContent = `${percent}%`;
+  deckProgressMeta.textContent =
+    total > 0
+      ? `${completed} of ${total} cards completed this session`
+      : "Start a session to track progress.";
+}
+
+function updateHeaderContent() {
+  if (currentView === "home") {
+    heroTitle.textContent = "Daily Flashcards, Made Friendly";
+    heroSubtitle.textContent =
+      "Create cards, schedule bite-sized sessions, and review with Anki-inspired spacing.";
+    deckHeaderActions.classList.add("hidden");
+    updateHeaderSummary();
+    return;
+  }
+
+  const deck = getActiveDeck();
+  heroTitle.textContent = deck.name;
+  heroSubtitle.textContent = "Study and edit this deck.";
+  deckHeaderActions.classList.remove("hidden");
+  updateHeaderSummary();
+}
+
+function setView(viewName) {
+  currentView = viewName;
+  const showHome = viewName === "home";
+  homeView.classList.toggle("hidden", !showHome);
+  deckView.classList.toggle("hidden", showHome);
+
+  if (showHome) {
+    resetSessionUi();
+  } else {
+    resetSessionUi();
+    renderDeckWorkspace();
+  }
+  updateSidebarState();
+  updateHeaderContent();
+}
+
+function openDeck(deckId) {
+  const deck = state.decks.find((item) => item.id === deckId);
+  if (!deck) {
+    return;
+  }
+  updateDeckLastOpened(deck);
+  setView("deck");
+  renderAll();
 }
 
 function renderCards() {
@@ -249,7 +454,7 @@ function renderCards() {
 function addCard(front, back) {
   const deck = getActiveDeck();
   const newCard = {
-    id: crypto.randomUUID(),
+    id: generateId(),
     front,
     back,
     createdAt: todayISO(),
@@ -263,12 +468,27 @@ function addCard(front, back) {
   saveState();
 }
 
+function createNewDeck() {
+  const defaultName = `Deck ${state.decks.length + 1}`;
+  const response = window.prompt("Name your new deck:", defaultName);
+  if (response === null) {
+    return;
+  }
+
+  const name = response.trim() || defaultName;
+  const deck = createDeck(name);
+  state.decks.push(deck);
+  updateDeckLastOpened(deck);
+  saveState();
+  openDeck(deck.id);
+}
+
 function normalizeCardPayload(card) {
   if (!card.front || !card.back) {
     return null;
   }
   return {
-    id: card.id || crypto.randomUUID(),
+    id: card.id || generateId(),
     front: String(card.front).trim(),
     back: String(card.back).trim(),
     createdAt: card.createdAt || todayISO(),
@@ -416,6 +636,7 @@ function startStudySession() {
   if (sessionQueue.length === 0) {
     sessionEmpty.classList.remove("hidden");
     session.classList.add("hidden");
+    updateDeckProgressTracker();
     return;
   }
 
@@ -423,6 +644,7 @@ function startStudySession() {
   session.classList.remove("hidden");
   showAnswer.classList.remove("hidden");
   answerArea.classList.add("hidden");
+  updateDeckProgressTracker();
   renderSessionCard();
 }
 
@@ -465,109 +687,24 @@ function closeModal(modal) {
   modal.classList.add("hidden");
 }
 
-function renderAll() {
-  updateSummary();
-  renderDeckSummary();
-  renderDeckList();
-  renderCards();
+function setImportUploadState(hasFile) {
+  importUpload.disabled = !hasFile;
+  importUpload.classList.toggle("primary", hasFile);
+  importUpload.classList.toggle("ghost", !hasFile);
 }
 
-cardForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const front = frontInput.value.trim();
-  const back = backInput.value.trim();
+function resetImportUi() {
+  importStatus.textContent = "";
+  importStatus.classList.add("muted");
+  setImportUploadState(false);
+}
 
-  if (!front || !back) {
-    return;
-  }
-
-  addCard(front, back);
-  frontInput.value = "";
-  backInput.value = "";
-  renderAll();
-});
-
-startSession.addEventListener("click", () => {
-  startStudySession();
-});
-
-resumeDeck.addEventListener("click", () => {
-  startStudySession();
-});
-
-dailyLimit.addEventListener("change", () => {
-  const value = Number.parseInt(dailyLimit.value, 10);
-  if (!Number.isNaN(value) && value > 0) {
-    state.dailyLimit = value;
-    saveState();
-    updateSummary();
-  }
-});
-
-showAnswer.addEventListener("click", () => {
-  showAnswer.classList.add("hidden");
-  answerArea.classList.remove("hidden");
-});
-
-themeToggle.addEventListener("click", () => {
-  state.theme = state.theme === "dark" ? "light" : "dark";
-  saveState();
-  applyTheme();
-});
-
-searchInput.addEventListener("input", () => {
-  renderCards();
-});
-
-deckSearch.addEventListener("input", () => {
-  renderDeckList();
-});
-
-answerArea.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLButtonElement)) {
-    return;
-  }
-  const rating = target.dataset.rating;
-  if (!rating) {
-    return;
-  }
-
-  const current = sessionQueue[sessionIndex];
-  updateSchedule(current, rating);
-  saveState();
-  sessionIndex += 1;
-
-  if (sessionIndex >= sessionQueue.length) {
-    session.classList.add("hidden");
-    sessionEmpty.classList.remove("hidden");
-  } else {
-    renderSessionCard();
-  }
-
-  updateSummary();
-  renderCards();
-});
-
-importTrigger.addEventListener("click", () => {
-  openModal(importModal);
-});
-
-exportTrigger.addEventListener("click", () => {
-  openModal(exportModal);
-});
-
-[importModal, exportModal].forEach((modal) => {
-  modal.addEventListener("click", (event) => {
-    if (event.target === modal || event.target.hasAttribute("data-close-modal")) {
-      closeModal(modal);
-    }
-  });
-});
-
-importFile.addEventListener("change", async (event) => {
-  const file = event.target.files[0];
+async function importSelectedFile() {
+  const file = importFile.files[0];
   if (!file) {
+    importStatus.textContent = "Choose a file before uploading.";
+    importStatus.classList.remove("muted");
+    setImportUploadState(false);
     return;
   }
 
@@ -600,6 +737,145 @@ importFile.addEventListener("change", async (event) => {
     added > 0 ? `Imported ${added} cards successfully.` : "No cards were found in that file.";
   importStatus.classList.add("muted");
   importFile.value = "";
+  setImportUploadState(false);
+}
+
+function renderAll() {
+  updateHeaderSummary();
+  renderDeckSummary();
+  renderDeckList();
+  renderSidebarDecks();
+  if (currentView === "deck") {
+    renderDeckWorkspace();
+  }
+  updateHeaderContent();
+}
+
+cardForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const front = frontInput.value.trim();
+  const back = backInput.value.trim();
+
+  if (!front || !back) {
+    return;
+  }
+
+  addCard(front, back);
+  frontInput.value = "";
+  backInput.value = "";
+  renderAll();
+});
+
+startSession.addEventListener("click", () => {
+  startStudySession();
+});
+
+resumeDeck.addEventListener("click", () => {
+  const [lastOpenedDeck] = getDecksByLastOpened();
+  if (!lastOpenedDeck) {
+    return;
+  }
+  openDeck(lastOpenedDeck.id);
+});
+
+newDeckBtn.addEventListener("click", () => {
+  createNewDeck();
+});
+
+navHome.addEventListener("click", () => {
+  setView("home");
+  renderAll();
+});
+
+navDecks.addEventListener("click", () => {
+  setSidebarDecksExpanded(!sidebarDecksExpanded);
+  updateSidebarState();
+});
+
+dailyLimit.addEventListener("change", () => {
+  const value = Number.parseInt(dailyLimit.value, 10);
+  if (!Number.isNaN(value) && value > 0) {
+    state.dailyLimit = value;
+    saveState();
+    updateSummary();
+  }
+});
+
+showAnswer.addEventListener("click", () => {
+  showAnswer.classList.add("hidden");
+  answerArea.classList.remove("hidden");
+});
+
+themeToggle.addEventListener("click", () => {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  saveState();
+  applyTheme();
+});
+
+searchInput.addEventListener("input", () => {
+  renderCards();
+});
+
+answerArea.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLButtonElement)) {
+    return;
+  }
+  const rating = target.dataset.rating;
+  if (!rating) {
+    return;
+  }
+
+  const current = sessionQueue[sessionIndex];
+  updateSchedule(current, rating);
+  saveState();
+  sessionIndex += 1;
+  updateDeckProgressTracker();
+
+  if (sessionIndex >= sessionQueue.length) {
+    session.classList.add("hidden");
+    sessionEmpty.classList.remove("hidden");
+  } else {
+    renderSessionCard();
+  }
+
+  updateSummary();
+  renderCards();
+});
+
+importTrigger.addEventListener("click", () => {
+  resetImportUi();
+  openModal(importModal);
+});
+
+exportTrigger.addEventListener("click", () => {
+  openModal(exportModal);
+});
+
+navSettings.addEventListener("click", () => {
+  openModal(settingsModal);
+});
+
+[importModal, exportModal, settingsModal].forEach((modal) => {
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal || event.target.hasAttribute("data-close-modal")) {
+      closeModal(modal);
+      if (modal === importModal) {
+        resetImportUi();
+      }
+    }
+  });
+});
+
+importFile.addEventListener("change", (event) => {
+  const hasFile = Boolean(event.target.files[0]);
+  setImportUploadState(hasFile);
+  importStatus.textContent = hasFile ? `Ready to upload: ${event.target.files[0].name}` : "";
+  importStatus.classList.add("muted");
+});
+
+importUpload.addEventListener("click", async () => {
+  await importSelectedFile();
 });
 
 exportJson.addEventListener("click", () => {
@@ -633,4 +909,6 @@ clearAll.addEventListener("click", () => {
 
 applyTheme();
 renderAll();
-startStudySession();
+setImportUploadState(false);
+setSidebarDecksExpanded(true);
+setView("home");
