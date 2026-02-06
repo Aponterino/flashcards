@@ -17,6 +17,14 @@ const answerArea = document.getElementById("answerArea");
 const sessionProgress = document.getElementById("sessionProgress");
 const sessionEmpty = document.getElementById("sessionEmpty");
 const clearAll = document.getElementById("clearAll");
+const importFile = document.getElementById("importFile");
+const importStatus = document.getElementById("importStatus");
+const exportJson = document.getElementById("exportJson");
+const exportCsv = document.getElementById("exportCsv");
+const exportTsv = document.getElementById("exportTsv");
+const exportXml = document.getElementById("exportXml");
+const themeToggle = document.getElementById("themeToggle");
+const searchInput = document.getElementById("searchInput");
 
 let state = loadState();
 let sessionQueue = [];
@@ -30,11 +38,17 @@ function loadState() {
   return {
     cards: [],
     dailyLimit: 10,
+    theme: "light",
   };
 }
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function applyTheme() {
+  document.documentElement.setAttribute("data-theme", state.theme);
+  themeToggle.textContent = state.theme === "dark" ? "Switch to Light" : "Switch to Dark";
 }
 
 function todayISO() {
@@ -66,13 +80,28 @@ function updateSummary() {
 }
 
 function renderCards() {
+  const query = searchInput.value.trim().toLowerCase();
   cardList.innerHTML = "";
   if (state.cards.length === 0) {
     cardList.innerHTML = "<p class='muted'>No cards yet. Add your first card to get started.</p>";
     return;
   }
 
-  state.cards.forEach((card) => {
+  const filtered = state.cards.filter((card) => {
+    if (!query) {
+      return true;
+    }
+    return (
+      card.front.toLowerCase().includes(query) || card.back.toLowerCase().includes(query)
+    );
+  });
+
+  if (filtered.length === 0) {
+    cardList.innerHTML = "<p class='muted'>No cards match your search yet.</p>";
+    return;
+  }
+
+  filtered.forEach((card) => {
     const wrapper = document.createElement("div");
     wrapper.className = "card-item";
 
@@ -141,6 +170,139 @@ function addCard(front, back) {
   state.cards.push(newCard);
   sortCards();
   saveState();
+}
+
+function normalizeCardPayload(card) {
+  if (!card.front || !card.back) {
+    return null;
+  }
+  return {
+    id: card.id || crypto.randomUUID(),
+    front: String(card.front).trim(),
+    back: String(card.back).trim(),
+    createdAt: card.createdAt || todayISO(),
+    dueDate: card.dueDate || todayISO(),
+    interval: Number(card.interval) || 1,
+    ease: Number(card.ease) || 2.5,
+  };
+}
+
+function mergeImportedCards(cards) {
+  const normalized = cards.map(normalizeCardPayload).filter(Boolean);
+  if (normalized.length === 0) {
+    return 0;
+  }
+  state.cards = [...state.cards, ...normalized];
+  sortCards();
+  saveState();
+  return normalized.length;
+}
+
+function parseDelimited(text, delimiter) {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim() !== "");
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const headers = lines[0].split(delimiter).map((header) => header.trim().toLowerCase());
+  const hasHeader = headers.includes("front") || headers.includes("back");
+  const startIndex = hasHeader ? 1 : 0;
+
+  return lines.slice(startIndex).map((line) => {
+    const cells = line.split(delimiter).map((cell) => cell.trim());
+    if (hasHeader) {
+      return {
+        front: cells[headers.indexOf("front")] || "",
+        back: cells[headers.indexOf("back")] || "",
+      };
+    }
+    return { front: cells[0] || "", back: cells[1] || "" };
+  });
+}
+
+function parseXml(text) {
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(text, "text/xml");
+  const cards = [];
+  const cardNodes = Array.from(xml.querySelectorAll("card, flashcard, note"));
+
+  cardNodes.forEach((node) => {
+    const front = node.querySelector("front, question, prompt")?.textContent ?? "";
+    const back = node.querySelector("back, answer")?.textContent ?? "";
+    if (front.trim() && back.trim()) {
+      cards.push({ front: front.trim(), back: back.trim() });
+    }
+  });
+
+  if (cards.length === 0) {
+    const textNodes = Array.from(xml.querySelectorAll("text"));
+    textNodes.forEach((node, index) => {
+      const content = node.textContent?.trim() ?? "";
+      if (content) {
+        if (index % 2 === 0) {
+          cards.push({ front: content, back: "" });
+        } else if (cards.length > 0) {
+          cards[cards.length - 1].back = content;
+        }
+      }
+    });
+  }
+
+  return cards.filter((card) => card.front && card.back);
+}
+
+function exportFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAsJson() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    cards: state.cards,
+  };
+  exportFile("study-buddy-cards.json", JSON.stringify(payload, null, 2), "application/json");
+}
+
+function exportAsDelimited(delimiter, extension) {
+  const header = ["front", "back"].join(delimiter);
+  const rows = state.cards.map((card) =>
+    [card.front, card.back].map((value) => `"${String(value).replace(/\"/g, '""')}"`).join(delimiter)
+  );
+  exportFile(
+    `study-buddy-cards.${extension}`,
+    [header, ...rows].join("\n"),
+    "text/plain"
+  );
+}
+
+function exportAsXml() {
+  const lines = [
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+    "<cards>",
+    ...state.cards.map(
+      (card) =>
+        `  <card><front>${escapeXml(card.front)}</front><back>${escapeXml(
+          card.back
+        )}</back></card>`
+    ),
+    "</cards>",
+  ];
+  exportFile("study-buddy-cards.xml", lines.join("\n"), "application/xml");
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function startStudySession() {
@@ -227,6 +389,16 @@ showAnswer.addEventListener("click", () => {
   answerArea.classList.remove("hidden");
 });
 
+themeToggle.addEventListener("click", () => {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  saveState();
+  applyTheme();
+});
+
+searchInput.addEventListener("input", () => {
+  renderCards();
+});
+
 answerArea.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLButtonElement)) {
@@ -253,6 +425,62 @@ answerArea.addEventListener("click", (event) => {
   renderCards();
 });
 
+importFile.addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  if (!file) {
+    return;
+  }
+
+  const extension = file.name.split(".").pop().toLowerCase();
+  const content = await file.text();
+  let imported = [];
+
+  try {
+    if (extension === "json") {
+      const parsed = JSON.parse(content);
+      imported = Array.isArray(parsed) ? parsed : parsed.cards || [];
+    } else if (extension === "csv") {
+      imported = parseDelimited(content, ",");
+    } else if (extension === "tsv") {
+      imported = parseDelimited(content, "\t");
+    } else if (extension === "xml") {
+      imported = parseXml(content);
+    } else {
+      imported = parseDelimited(content, "\t");
+    }
+  } catch (error) {
+    importStatus.textContent = "Import failed. Please check the file format.";
+    importStatus.classList.remove("muted");
+    return;
+  }
+
+  const added = mergeImportedCards(imported);
+  renderCards();
+  updateSummary();
+  importStatus.textContent =
+    added > 0
+      ? `Imported ${added} cards successfully.`
+      : "No cards were found in that file.";
+  importStatus.classList.add("muted");
+  importFile.value = "";
+});
+
+exportJson.addEventListener("click", () => {
+  exportAsJson();
+});
+
+exportCsv.addEventListener("click", () => {
+  exportAsDelimited(",", "csv");
+});
+
+exportTsv.addEventListener("click", () => {
+  exportAsDelimited("\t", "tsv");
+});
+
+exportXml.addEventListener("click", () => {
+  exportAsXml();
+});
+
 clearAll.addEventListener("click", () => {
   const shouldClear = window.confirm("Clear your entire deck? This cannot be undone.");
   if (!shouldClear) {
@@ -269,3 +497,4 @@ clearAll.addEventListener("click", () => {
 updateSummary();
 renderCards();
 startStudySession();
+applyTheme();
