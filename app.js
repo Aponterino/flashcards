@@ -25,6 +25,14 @@ const exportTsv = document.getElementById("exportTsv");
 const exportXml = document.getElementById("exportXml");
 const themeToggle = document.getElementById("themeToggle");
 const searchInput = document.getElementById("searchInput");
+const deckSearch = document.getElementById("deckSearch");
+const deckList = document.getElementById("deckList");
+const currentDeckName = document.getElementById("currentDeckName");
+const resumeDeck = document.getElementById("resumeDeck");
+const importTrigger = document.getElementById("importTrigger");
+const exportTrigger = document.getElementById("exportTrigger");
+const importModal = document.getElementById("importModal");
+const exportModal = document.getElementById("exportModal");
 
 let state = loadState();
 let sessionQueue = [];
@@ -36,9 +44,19 @@ function loadState() {
     return JSON.parse(stored);
   }
   return {
-    cards: [],
+    decks: [createDeck("Starter Deck")],
+    activeDeckId: null,
     dailyLimit: 10,
     theme: "light",
+  };
+}
+
+function createDeck(name) {
+  return {
+    id: crypto.randomUUID(),
+    name,
+    cards: [],
+    lastOpenedAt: new Date().toISOString(),
   };
 }
 
@@ -63,31 +81,102 @@ function addDays(isoDate, days) {
   return date.toISOString();
 }
 
-function sortCards() {
-  state.cards.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+function getActiveDeck() {
+  if (!state.decks.length) {
+    const newDeck = createDeck("Starter Deck");
+    state.decks.push(newDeck);
+  }
+
+  let active = state.decks.find((deck) => deck.id === state.activeDeckId);
+  if (!active) {
+    state.decks.sort((a, b) => new Date(b.lastOpenedAt) - new Date(a.lastOpenedAt));
+    active = state.decks[0];
+    state.activeDeckId = active.id;
+  }
+  return active;
 }
 
-function getDueCards() {
+function updateDeckLastOpened(deck) {
+  deck.lastOpenedAt = new Date().toISOString();
+  state.activeDeckId = deck.id;
+  saveState();
+}
+
+function sortCards(deck) {
+  deck.cards.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+}
+
+function getDueCards(deck) {
   const today = new Date(todayISO());
-  return state.cards.filter((card) => new Date(card.dueDate) <= today);
+  return deck.cards.filter((card) => new Date(card.dueDate) <= today);
 }
 
 function updateSummary() {
-  totalCount.textContent = state.cards.length;
-  dueCount.textContent = getDueCards().length;
+  const deck = getActiveDeck();
+  totalCount.textContent = deck.cards.length;
+  dueCount.textContent = getDueCards(deck).length;
   dailyLimit.value = state.dailyLimit;
   dailyLimitLabel.textContent = state.dailyLimit;
 }
 
+function renderDeckSummary() {
+  const deck = getActiveDeck();
+  currentDeckName.textContent = deck.name;
+  resumeDeck.textContent = deck.cards.length === 0 ? "Start Deck" : "Resume Deck";
+}
+
+function renderDeckList() {
+  const query = deckSearch.value.trim().toLowerCase();
+  const sortedDecks = [...state.decks].sort(
+    (a, b) => new Date(b.lastOpenedAt) - new Date(a.lastOpenedAt)
+  );
+
+  deckList.innerHTML = "";
+  const filtered = sortedDecks.filter((deck) =>
+    deck.name.toLowerCase().includes(query)
+  );
+
+  if (filtered.length === 0) {
+    deckList.innerHTML = "<p class='muted'>No decks match your search.</p>";
+    return;
+  }
+
+  filtered.forEach((deck) => {
+    const item = document.createElement("div");
+    item.className = "deck-item";
+
+    const info = document.createElement("div");
+    const name = document.createElement("p");
+    name.textContent = deck.name;
+    name.className = "summary-value";
+    const meta = document.createElement("p");
+    meta.className = "muted";
+    meta.textContent = `${deck.cards.length} cards`;
+    info.append(name, meta);
+
+    const action = document.createElement("button");
+    action.className = deck.id === state.activeDeckId ? "primary" : "ghost";
+    action.textContent = deck.id === state.activeDeckId ? "Active" : "Open";
+    action.addEventListener("click", () => {
+      updateDeckLastOpened(deck);
+      renderAll();
+    });
+
+    item.append(info, action);
+    deckList.appendChild(item);
+  });
+}
+
 function renderCards() {
+  const deck = getActiveDeck();
   const query = searchInput.value.trim().toLowerCase();
   cardList.innerHTML = "";
-  if (state.cards.length === 0) {
+  if (deck.cards.length === 0) {
     cardList.innerHTML = "<p class='muted'>No cards yet. Add your first card to get started.</p>";
     return;
   }
 
-  const filtered = state.cards.filter((card) => {
+  const filtered = deck.cards.filter((card) => {
     if (!query) {
       return true;
     }
@@ -136,7 +225,7 @@ function renderCards() {
       card.ease = 2.5;
       card.dueDate = todayISO();
       saveState();
-      sortCards();
+      sortCards(deck);
       renderCards();
       updateSummary();
     });
@@ -145,7 +234,7 @@ function renderCards() {
     deleteBtn.className = "ghost";
     deleteBtn.textContent = "Delete";
     deleteBtn.addEventListener("click", () => {
-      state.cards = state.cards.filter((item) => item.id !== card.id);
+      deck.cards = deck.cards.filter((item) => item.id !== card.id);
       saveState();
       renderCards();
       updateSummary();
@@ -158,6 +247,7 @@ function renderCards() {
 }
 
 function addCard(front, back) {
+  const deck = getActiveDeck();
   const newCard = {
     id: crypto.randomUUID(),
     front,
@@ -167,8 +257,9 @@ function addCard(front, back) {
     interval: 1,
     ease: 2.5,
   };
-  state.cards.push(newCard);
-  sortCards();
+  deck.cards.push(newCard);
+  sortCards(deck);
+  updateDeckLastOpened(deck);
   saveState();
 }
 
@@ -188,12 +279,14 @@ function normalizeCardPayload(card) {
 }
 
 function mergeImportedCards(cards) {
+  const deck = getActiveDeck();
   const normalized = cards.map(normalizeCardPayload).filter(Boolean);
   if (normalized.length === 0) {
     return 0;
   }
-  state.cards = [...state.cards, ...normalized];
-  sortCards();
+  deck.cards = [...deck.cards, ...normalized];
+  sortCards(deck);
+  updateDeckLastOpened(deck);
   saveState();
   return normalized.length;
 }
@@ -262,17 +355,24 @@ function exportFile(filename, content, type) {
 }
 
 function exportAsJson() {
+  const deck = getActiveDeck();
   const payload = {
     exportedAt: new Date().toISOString(),
-    cards: state.cards,
+    deck: {
+      name: deck.name,
+      cards: deck.cards,
+    },
   };
   exportFile("study-buddy-cards.json", JSON.stringify(payload, null, 2), "application/json");
 }
 
 function exportAsDelimited(delimiter, extension) {
+  const deck = getActiveDeck();
   const header = ["front", "back"].join(delimiter);
-  const rows = state.cards.map((card) =>
-    [card.front, card.back].map((value) => `"${String(value).replace(/\"/g, '""')}"`).join(delimiter)
+  const rows = deck.cards.map((card) =>
+    [card.front, card.back]
+      .map((value) => `"${String(value).replace(/\"/g, '""')}"`)
+      .join(delimiter)
   );
   exportFile(
     `study-buddy-cards.${extension}`,
@@ -282,10 +382,11 @@ function exportAsDelimited(delimiter, extension) {
 }
 
 function exportAsXml() {
+  const deck = getActiveDeck();
   const lines = [
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
     "<cards>",
-    ...state.cards.map(
+    ...deck.cards.map(
       (card) =>
         `  <card><front>${escapeXml(card.front)}</front><back>${escapeXml(
           card.back
@@ -306,8 +407,9 @@ function escapeXml(value) {
 }
 
 function startStudySession() {
-  sortCards();
-  const dueCards = getDueCards();
+  const deck = getActiveDeck();
+  sortCards(deck);
+  const dueCards = getDueCards(deck);
   sessionQueue = dueCards.slice(0, state.dailyLimit);
   sessionIndex = 0;
 
@@ -355,6 +457,21 @@ function updateSchedule(card, rating) {
   card.dueDate = addDays(todayISO(), card.interval);
 }
 
+function openModal(modal) {
+  modal.classList.remove("hidden");
+}
+
+function closeModal(modal) {
+  modal.classList.add("hidden");
+}
+
+function renderAll() {
+  updateSummary();
+  renderDeckSummary();
+  renderDeckList();
+  renderCards();
+}
+
 cardForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const front = frontInput.value.trim();
@@ -367,11 +484,14 @@ cardForm.addEventListener("submit", (event) => {
   addCard(front, back);
   frontInput.value = "";
   backInput.value = "";
-  renderCards();
-  updateSummary();
+  renderAll();
 });
 
 startSession.addEventListener("click", () => {
+  startStudySession();
+});
+
+resumeDeck.addEventListener("click", () => {
   startStudySession();
 });
 
@@ -397,6 +517,10 @@ themeToggle.addEventListener("click", () => {
 
 searchInput.addEventListener("input", () => {
   renderCards();
+});
+
+deckSearch.addEventListener("input", () => {
+  renderDeckList();
 });
 
 answerArea.addEventListener("click", (event) => {
@@ -425,6 +549,22 @@ answerArea.addEventListener("click", (event) => {
   renderCards();
 });
 
+importTrigger.addEventListener("click", () => {
+  openModal(importModal);
+});
+
+exportTrigger.addEventListener("click", () => {
+  openModal(exportModal);
+});
+
+[importModal, exportModal].forEach((modal) => {
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal || event.target.hasAttribute("data-close-modal")) {
+      closeModal(modal);
+    }
+  });
+});
+
 importFile.addEventListener("change", async (event) => {
   const file = event.target.files[0];
   if (!file) {
@@ -438,7 +578,7 @@ importFile.addEventListener("change", async (event) => {
   try {
     if (extension === "json") {
       const parsed = JSON.parse(content);
-      imported = Array.isArray(parsed) ? parsed : parsed.cards || [];
+      imported = Array.isArray(parsed) ? parsed : parsed.deck?.cards || parsed.cards || [];
     } else if (extension === "csv") {
       imported = parseDelimited(content, ",");
     } else if (extension === "tsv") {
@@ -455,12 +595,9 @@ importFile.addEventListener("change", async (event) => {
   }
 
   const added = mergeImportedCards(imported);
-  renderCards();
-  updateSummary();
+  renderAll();
   importStatus.textContent =
-    added > 0
-      ? `Imported ${added} cards successfully.`
-      : "No cards were found in that file.";
+    added > 0 ? `Imported ${added} cards successfully.` : "No cards were found in that file.";
   importStatus.classList.add("muted");
   importFile.value = "";
 });
@@ -486,15 +623,14 @@ clearAll.addEventListener("click", () => {
   if (!shouldClear) {
     return;
   }
-  state.cards = [];
+  const deck = getActiveDeck();
+  deck.cards = [];
   saveState();
-  renderCards();
-  updateSummary();
+  renderAll();
   session.classList.add("hidden");
   sessionEmpty.classList.remove("hidden");
 });
 
-updateSummary();
-renderCards();
-startStudySession();
 applyTheme();
+renderAll();
+startStudySession();

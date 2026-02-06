@@ -12,6 +12,7 @@
   --accent-soft: #eef2ff;
   --answer-bg: #f8fafc;
   --input-bg: #ffffff;
+  --modal-overlay: rgba(15, 23, 42, 0.6);
 }
 
 [data-theme="dark"] {
@@ -27,6 +28,7 @@
   --accent-soft: #1e1b4b;
   --answer-bg: #0b1120;
   --input-bg: #0f172a;
+  --modal-overlay: rgba(2, 6, 23, 0.75);
 }
 
 * {
@@ -65,6 +67,13 @@ h1 {
   margin: 0;
   color: var(--muted);
   max-width: 560px;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
 }
 
 .summary-panel {
@@ -168,8 +177,38 @@ button.ghost {
 }
 
 .theme-toggle {
-  align-self: flex-start;
   padding: 10px 18px;
+}
+
+.deck-highlight {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px dashed var(--border);
+  background: rgba(79, 70, 229, 0.05);
+}
+
+.deck-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.deck-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.deck-item button {
+  padding: 6px 12px;
 }
 
 .setting-row {
@@ -282,15 +321,44 @@ button.ghost {
   gap: 12px;
 }
 
-.list-actions input {
+.list-actions input,
+#deckSearch {
   padding: 8px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  min-width: 200px;
+  width: 100%;
 }
 
 .import-hint {
   min-height: 20px;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-overlay);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  z-index: 10;
+}
+
+.modal-content {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .footer {
@@ -306,5 +374,10 @@ button.ghost {
 
   .rating {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .deck-highlight {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
