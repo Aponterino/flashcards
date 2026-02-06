@@ -9,6 +9,24 @@
   --primary-dark: #4338ca;
   --border: #e2e8f0;
   --shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  --accent-soft: #eef2ff;
+  --answer-bg: #f8fafc;
+  --input-bg: #ffffff;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f172a;
+  --card: #111827;
+  --ink: #f8fafc;
+  --muted: #94a3b8;
+  --primary: #818cf8;
+  --primary-dark: #6366f1;
+  --border: #1f2937;
+  --shadow: 0 18px 40px rgba(2, 6, 23, 0.4);
+  --accent-soft: #1e1b4b;
+  --answer-bg: #0b1120;
+  --input-bg: #0f172a;
 }
 
 * {
@@ -115,6 +133,14 @@ textarea {
   border-radius: 12px;
   border: 1px solid var(--border);
   font-size: 14px;
+  background: var(--input-bg);
+  color: var(--ink);
+}
+
+input,
+select {
+  background: var(--input-bg);
+  color: var(--ink);
 }
 
 button {
@@ -139,6 +165,11 @@ button.ghost {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--ink);
+}
+
+.theme-toggle {
+  align-self: flex-start;
+  padding: 10px 18px;
 }
 
 .setting-row {
@@ -182,7 +213,7 @@ button.ghost {
 }
 
 .answer {
-  background: #f8fafc;
+  background: var(--answer-bg);
   border-radius: 12px;
   padding: 12px;
   display: grid;
@@ -196,9 +227,15 @@ button.ghost {
 }
 
 .rating button {
-  background: #eef2ff;
+  background: var(--accent-soft);
   color: var(--primary);
   font-weight: 600;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .card-list {
@@ -237,6 +274,23 @@ button.ghost {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.list-actions input {
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  min-width: 200px;
+}
+
+.import-hint {
+  min-height: 20px;
 }
 
 .footer {
