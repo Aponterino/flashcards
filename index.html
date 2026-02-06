@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Study Buddy - Flashcards</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Study Buddy</p>
+        <h1>Daily Flashcards, Made Friendly</h1>
+        <p class="subtitle">
+          Create cards, schedule bite-sized sessions, and review with Anki-inspired
+          spacing.
+        </p>
+      </div>
+      <div class="header-actions">
+        <button id="importTrigger" class="ghost" type="button">Import</button>
+        <button id="exportTrigger" class="ghost" type="button">Export</button>
+        <button id="themeToggle" class="ghost theme-toggle" type="button">
+          Toggle Dark Mode
+        </button>
+      </div>
+      <div class="summary-panel">
+        <div>
+          <p class="summary-label">Due Today</p>
+          <p class="summary-value" id="dueCount">0</p>
+        </div>
+        <div>
+          <p class="summary-label">Cards Total</p>
+          <p class="summary-value" id="totalCount">0</p>
+        </div>
+        <div>
+          <p class="summary-label">Daily Goal</p>
+          <p class="summary-value" id="dailyLimitLabel">10</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card">
+        <h2>Pick Up Where You Left Off</h2>
+        <p class="muted">Your most recent deck is ready for a quick session.</p>
+        <div class="deck-highlight">
+          <div>
+            <p class="summary-label">Current Deck</p>
+            <p id="currentDeckName" class="summary-value"></p>
+          </div>
+          <button id="resumeDeck" class="primary" type="button">Start Deck</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Deck Library</h2>
+        <p class="muted">Search or switch to another deck anytime.</p>
+        <input id="deckSearch" type="search" placeholder="Search decks..." />
+        <div id="deckList" class="deck-list"></div>
+      </section>
+
+      <section class="card">
+        <h2>Create a Card</h2>
+        <p class="muted">
+          Keep your prompts short and clear. New cards are ready to study today.
+        </p>
+        <form id="cardForm" class="stack">
+          <label>
+            Front (question)
+            <textarea id="frontInput" required></textarea>
+          </label>
+          <label>
+            Back (answer)
+            <textarea id="backInput" required></textarea>
+          </label>
+          <button type="submit" class="primary">Add Card</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Daily Session</h2>
+        <p class="muted">
+          Focus on a small subset each day. Adjust your daily goal anytime.
+        </p>
+        <div class="setting-row">
+          <label for="dailyLimit">Cards per day</label>
+          <input type="number" id="dailyLimit" min="1" max="100" />
+        </div>
+        <button id="startSession" class="primary">Start Study Session</button>
+        <div id="session" class="session hidden">
+          <div class="session-card">
+            <p class="session-label">Prompt</p>
+            <p id="sessionFront" class="session-text"></p>
+            <button id="showAnswer" class="ghost">Show Answer</button>
+            <div id="answerArea" class="answer hidden">
+              <p class="session-label">Answer</p>
+              <p id="sessionBack" class="session-text"></p>
+              <div class="rating">
+                <button data-rating="again">Again</button>
+                <button data-rating="hard">Hard</button>
+                <button data-rating="good">Good</button>
+                <button data-rating="easy">Easy</button>
+              </div>
+            </div>
+          </div>
+          <p class="muted" id="sessionProgress"></p>
+        </div>
+        <p id="sessionEmpty" class="muted">You are all caught up for today!</p>
+      </section>
+
+      <section class="card full">
+        <div class="list-header">
+          <div>
+            <h2>Your Deck</h2>
+            <p class="muted">Edit or remove cards anytime.</p>
+          </div>
+          <div class="list-actions">
+            <input id="searchInput" type="search" placeholder="Search cards..." />
+            <button id="clearAll" class="ghost">Clear All</button>
+          </div>
+        </div>
+        <div id="cardList" class="card-list"></div>
+      </section>
+    </main>
+
+    <div id="importModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Import Cards</h3>
+          <button class="ghost" data-close-modal type="button">Close</button>
+        </div>
+        <p class="muted">
+          Import CSV, TSV, XML, or JSON files. Cards will be added to the current deck.
+        </p>
+        <div class="stack">
+          <label>
+            Choose file
+            <input
+              id="importFile"
+              type="file"
+              accept=".csv,.tsv,.xml,.json,text/csv,text/xml,application/json"
+            />
+          </label>
+          <div class="import-hint muted" id="importStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="exportModal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Export Cards</h3>
+          <button class="ghost" data-close-modal type="button">Close</button>
+        </div>
+        <p class="muted">Download your current deck in a preferred format.</p>
+        <div class="button-row">
+          <button id="exportJson" class="primary" type="button">Export JSON</button>
+          <button id="exportCsv" class="ghost" type="button">Export CSV</button>
+          <button id="exportTsv" class="ghost" type="button">Export TSV</button>
+          <button id="exportXml" class="ghost" type="button">Export XML</button>
+        </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      Built for daily review using a friendly, spaced-repetition flow inspired by
+      Anki.
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
