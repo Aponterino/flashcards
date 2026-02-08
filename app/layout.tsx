@@ -1,7 +1,9 @@
 import "./globals.css";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
+
+import AppHeader from "@/components/AppHeader";
+import Sidebar from "@/components/Sidebar";
 
 export const metadata = {
   title: "Study Buddy Flashcards",
@@ -12,18 +14,17 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
+        <a className="skip-link" href="#main-content">
+          Skip to main content
+        </a>
         <div className="app-shell">
-          <header className="app-header">
-            <div>
-              <p className="eyebrow">Study Buddy</p>
-              <h1>Flashcards</h1>
-            </div>
-            <nav className="nav-links">
-              <Link href="/">Home</Link>
-              <Link href="/decks">Decks</Link>
-            </nav>
-          </header>
-          <main className="app-main">{children}</main>
+          <Sidebar />
+          <div className="app-content">
+            <AppHeader />
+            <main className="app-main" id="main-content" tabIndex={-1}>
+              {children}
+            </main>
+          </div>
         </div>
       </body>
     </html>

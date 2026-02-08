@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
 let pool: Pool | null = null;
+let schemaInitPromise: Promise<void> | null = null;
 
 export function getDb() {
   const connectionString = process.env.DATABASE_URL;
@@ -15,4 +16,161 @@ export function getDb() {
   }
 
   return drizzle(pool);
+}
+
+async function initializeSchema() {
+  if (!pool) {
+    getDb();
+  }
+
+  if (!pool) {
+    throw new Error("Database pool was not initialized");
+  }
+
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS decks (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL,
+      deleted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE decks
+    ADD COLUMN IF NOT EXISTS deleted_at timestamptz
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cards (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      deck_id uuid NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+      front text NOT NULL,
+      back text NOT NULL,
+      due_date date NOT NULL,
+      interval_days integer NOT NULL DEFAULT 1,
+      ease_factor numeric(4,2) NOT NULL DEFAULT 2.50,
+      last_difficulty text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE cards
+    ADD COLUMN IF NOT EXISTS last_difficulty text
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deck_versions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      deck_id uuid NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+      reason text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deck_version_cards (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      version_id uuid NOT NULL REFERENCES deck_versions(id) ON DELETE CASCADE,
+      card_id uuid NOT NULL,
+      front text NOT NULL,
+      back text NOT NULL,
+      due_date date NOT NULL,
+      interval_days integer NOT NULL DEFAULT 1,
+      ease_factor numeric(4,2) NOT NULL DEFAULT 2.50,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deck_study_settings (
+      deck_id uuid PRIMARY KEY REFERENCES decks(id) ON DELETE CASCADE,
+      daily_goal integer NOT NULL DEFAULT 20,
+      goal_configured boolean NOT NULL DEFAULT false,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_settings
+    ADD COLUMN IF NOT EXISTS goal_configured boolean NOT NULL DEFAULT false
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deck_study_days (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      deck_id uuid NOT NULL REFERENCES decks(id) ON DELETE CASCADE,
+      study_date date NOT NULL,
+      goal integer NOT NULL,
+      reviewed_count integer NOT NULL DEFAULT 0,
+      easy_count integer NOT NULL DEFAULT 0,
+      medium_count integer NOT NULL DEFAULT 0,
+      hard_count integer NOT NULL DEFAULT 0,
+      due_count_snapshot integer NOT NULL DEFAULT 0,
+      overdue_count_snapshot integer NOT NULL DEFAULT 0,
+      started_at timestamptz,
+      completed_at timestamptz,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_days
+    ADD COLUMN IF NOT EXISTS easy_count integer NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_days
+    ADD COLUMN IF NOT EXISTS medium_count integer NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_days
+    ADD COLUMN IF NOT EXISTS hard_count integer NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_days
+    ADD COLUMN IF NOT EXISTS due_count_snapshot integer NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    ALTER TABLE deck_study_days
+    ADD COLUMN IF NOT EXISTS overdue_count_snapshot integer NOT NULL DEFAULT 0
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS deck_study_days_deck_date_unique
+    ON deck_study_days(deck_id, study_date)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id text PRIMARY KEY,
+      theme text NOT NULL DEFAULT 'light',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_preferences
+    ADD COLUMN IF NOT EXISTS theme text NOT NULL DEFAULT 'light'
+  `);
+}
+
+export async function ensureDbReady() {
+  if (!schemaInitPromise) {
+    schemaInitPromise = initializeSchema().catch((error) => {
+      schemaInitPromise = null;
+      throw error;
+    });
+  }
+
+  await schemaInitPromise;
 }

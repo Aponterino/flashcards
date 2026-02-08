@@ -7,7 +7,7 @@ export default function NewDeckPage() {
     <section className="stack">
       <div>
         <p className="eyebrow">New deck</p>
-        <h2>Create a deck</h2>
+        <h1>Create a deck</h1>
         <p className="subtitle">Give your deck a name and start adding cards.</p>
       </div>
 

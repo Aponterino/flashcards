@@ -20,7 +20,7 @@ export default function DeckList({ decks }: DeckListProps) {
                 <p className="deck-title">{deck.name}</p>
                 <p className="muted">{deck.cardCount} cards</p>
               </div>
-              <span className="chip">Open</span>
+              <span className="chip deck-open-chip card-hover-action">Open</span>
             </Link>
           ))}
         </div>

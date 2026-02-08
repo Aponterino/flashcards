@@ -215,6 +215,10 @@ h1 {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
+#homeView {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -225,6 +229,10 @@ h1 {
 
 .card.full {
   grid-column: 1 / -1;
+}
+
+.card.half {
+  grid-column: auto;
 }
 
 h2 {
@@ -478,6 +486,10 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  #homeView {
+    grid-template-columns: 1fr;
+  }
+
   .app-main {
     padding: 16px;
   }

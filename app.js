@@ -1,5 +1,3 @@
-const STORAGE_KEY = "studyBuddyFlashcards";
-
 function generateId() {
   if (window.crypto && typeof window.crypto.randomUUID === "function") {
     return window.crypto.randomUUID();
@@ -102,18 +100,7 @@ function normalizeState(rawState) {
 }
 
 function loadState() {
-  const fallback = normalizeState(null);
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) {
-    return fallback;
-  }
-
-  try {
-    return normalizeState(JSON.parse(stored));
-  } catch (error) {
-    console.warn("Failed to parse saved flashcard data, resetting state.", error);
-    return fallback;
-  }
+  return normalizeState(null);
 }
 
 function createDeck(name) {
@@ -126,7 +113,7 @@ function createDeck(name) {
 }
 
 function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  // Browser persistence intentionally disabled.
 }
 
 function applyTheme() {
