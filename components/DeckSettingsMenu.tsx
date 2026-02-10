@@ -40,8 +40,10 @@ export default function DeckSettingsMenu({
   const [importStatus, setImportStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"muted" | "error">("muted");
   const [isOpen, setIsOpen] = useState(false);
+  const [isDuplicateReviewOpen, setIsDuplicateReviewOpen] = useState(false);
 
   const hasImportPreview = incomingCards.length > 0 || duplicateCards.length > 0;
+  const hasDuplicates = duplicateCards.length > 0;
   const duplicatePayload = useMemo(
     () =>
       duplicateCards.map((duplicate) => ({
@@ -73,6 +75,7 @@ export default function DeckSettingsMenu({
       setDuplicateCards([]);
       setImportStatus("");
       setStatusTone("muted");
+      setIsDuplicateReviewOpen(false);
       return;
     }
 
@@ -81,6 +84,7 @@ export default function DeckSettingsMenu({
     setDuplicateCards([]);
     setImportStatus(`Ready to upload: ${file.name}`);
     setStatusTone("muted");
+    setIsDuplicateReviewOpen(false);
   }
 
   async function handlePrepareImport() {
@@ -126,16 +130,24 @@ export default function DeckSettingsMenu({
         `Parsed ${imported.length} card${imported.length === 1 ? "" : "s"}: ${nextIncoming.length} new, ${nextDuplicates.length} duplicates found.`
       );
       setStatusTone("muted");
+      setIsDuplicateReviewOpen(false);
     } catch {
       setIncomingCards([]);
       setDuplicateCards([]);
       setImportStatus("Import failed. Please check the file format.");
       setStatusTone("error");
+      setIsDuplicateReviewOpen(false);
     }
   }
 
   function removeDuplicateCandidate(candidateId: string) {
-    setDuplicateCards((previous) => previous.filter((candidate) => candidate.id !== candidateId));
+    setDuplicateCards((previous) => {
+      const next = previous.filter((candidate) => candidate.id !== candidateId);
+      if (next.length === 0) {
+        setIsDuplicateReviewOpen(false);
+      }
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -151,6 +163,10 @@ export default function DeckSettingsMenu({
 
     function handleEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        if (isDuplicateReviewOpen) {
+          setIsDuplicateReviewOpen(false);
+          return;
+        }
         setIsOpen(false);
       }
     }
@@ -162,7 +178,7 @@ export default function DeckSettingsMenu({
       document.removeEventListener("mousedown", handleDocumentClick);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, []);
+  }, [isDuplicateReviewOpen]);
 
   useEffect(() => {
     function syncFromHash() {
@@ -175,7 +191,8 @@ export default function DeckSettingsMenu({
   }, []);
 
   return (
-    <details className="deck-menu" id="deck-settings" open={isOpen} ref={menuRef}>
+    <>
+      <details className="deck-menu" id="deck-settings" open={isOpen} ref={menuRef}>
       <summary
         className="button ghost deck-menu-trigger"
         onClick={(event) => {
@@ -241,58 +258,6 @@ export default function DeckSettingsMenu({
             ) : null}
           </div>
 
-          {duplicateCards.length > 0 ? (
-            <div className="stack">
-              <p className="deck-menu-label">Duplicate matches</p>
-              <div className="duplicate-list">
-                {duplicateCards.map((duplicate) => (
-                  <div className="duplicate-item" key={duplicate.id}>
-                    <button
-                      aria-label="Remove duplicate from import"
-                      className="button ghost duplicate-remove-button"
-                      onClick={() => removeDuplicateCandidate(duplicate.id)}
-                      type="button"
-                    >
-                      <svg
-                        aria-hidden="true"
-                        className="card-edit-icon"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M3 6h18"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                        />
-                        <path
-                          d="M8 6V4h8v2"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                        />
-                        <path
-                          d="M6 6l1 14h10l1-14"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                        />
-                      </svg>
-                    </button>
-                    <div className="duplicate-body">
-                      <p className="muted">Existing: {duplicate.existingFront} | {duplicate.existingBack}</p>
-                      <p className="muted">Imported: {duplicate.imported.front} | {duplicate.imported.back}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
           {hasImportPreview ? (
             <form action={resolveImportAction} className="deck-menu-button-grid">
               <input type="hidden" name="deckId" value={deckId} />
@@ -305,6 +270,12 @@ export default function DeckSettingsMenu({
                 Import and Replace Duplicates
               </button>
             </form>
+          ) : null}
+
+          {hasDuplicates ? (
+            <button className="button ghost deck-menu-full-button" onClick={() => setIsDuplicateReviewOpen(true)} type="button">
+              Review {duplicateCards.length} Duplicate{duplicateCards.length === 1 ? "" : "s"}
+            </button>
           ) : null}
         </section>
 
@@ -323,5 +294,68 @@ export default function DeckSettingsMenu({
         </form>
       </div>
     </details>
+
+      {isDuplicateReviewOpen && hasDuplicates ? (
+        <div
+          className="import-duplicate-modal-backdrop"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsDuplicateReviewOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <section aria-labelledby={`duplicate-review-title-${deckId}`} aria-modal="true" className="import-duplicate-modal" role="dialog">
+            <header className="import-duplicate-modal-head">
+              <div className="stack-sm">
+                <h4 id={`duplicate-review-title-${deckId}`}>Review duplicate cards</h4>
+                <p className="muted">
+                  {duplicateCards.length} duplicate match{duplicateCards.length === 1 ? "" : "es"} found. Remove any cards you do not
+                  want to apply.
+                </p>
+              </div>
+              <button className="button ghost" onClick={() => setIsDuplicateReviewOpen(false)} type="button">
+                Close
+              </button>
+            </header>
+
+            <div className="duplicate-list import-duplicate-modal-list">
+              {duplicateCards.map((duplicate) => (
+                <article className="duplicate-item import-duplicate-item" key={duplicate.id}>
+                  <button
+                    aria-label="Remove duplicate from import"
+                    className="button ghost duplicate-remove-button"
+                    onClick={() => removeDuplicateCandidate(duplicate.id)}
+                    type="button"
+                  >
+                    <svg aria-hidden="true" className="card-edit-icon" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M3 6h18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                      <path d="M8 6V4h8v2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                      <path d="M6 6l1 14h10l1-14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                    </svg>
+                  </button>
+                  <div className="duplicate-body">
+                    <p className="muted">Existing: {duplicate.existingFront} | {duplicate.existingBack}</p>
+                    <p className="muted">Imported: {duplicate.imported.front} | {duplicate.imported.back}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <form action={resolveImportAction} className="deck-menu-button-grid import-duplicate-modal-actions">
+              <input type="hidden" name="deckId" value={deckId} />
+              <input type="hidden" name="incomingCards" value={JSON.stringify(incomingCards)} />
+              <input type="hidden" name="duplicateCards" value={JSON.stringify(duplicatePayload)} />
+              <button className="button primary" name="strategy" type="submit" value="merge">
+                Upload and Merge
+              </button>
+              <button className="button danger" name="strategy" type="submit" value="replace">
+                Import and Replace Duplicates
+              </button>
+            </form>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -107,7 +107,7 @@ export default function CardListItem({
 
   return (
     <>
-      <div>
+      <div className="card-item-content">
         <p className={`card-front ${transitionClass}`}>
           <span className="card-label">Front:</span> {cardText.front}
         </p>

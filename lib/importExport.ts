@@ -58,24 +58,71 @@ function normalizeImportedCard(value: unknown): ImportedCardInput | null {
   return { front, back, dueDate, intervalDays, easeFactor };
 }
 
-function parseDelimited(text: string, delimiter: "," | "\t"): ImportedCardInput[] {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
+function parseDelimitedRows(text: string, delimiter: "," | "\t"): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = "";
+  let inQuotes = false;
 
-  if (lines.length === 0) {
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (character === '"') {
+      const nextCharacter = text[index + 1];
+      if (inQuotes && nextCharacter === '"') {
+        currentCell += '"';
+        index += 1;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (!inQuotes && character === delimiter) {
+      currentRow.push(currentCell);
+      currentCell = "";
+      continue;
+    }
+
+    if (!inQuotes && (character === "\n" || character === "\r")) {
+      if (character === "\r" && text[index + 1] === "\n") {
+        index += 1;
+      }
+      currentRow.push(currentCell);
+      currentCell = "";
+      if (currentRow.some((cell) => cell.trim().length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      continue;
+    }
+
+    currentCell += character;
+  }
+
+  currentRow.push(currentCell);
+  if (currentRow.some((cell) => cell.trim().length > 0)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+function parseDelimited(text: string, delimiter: "," | "\t"): ImportedCardInput[] {
+  const rows = parseDelimitedRows(text, delimiter);
+
+  if (rows.length === 0) {
     return [];
   }
 
-  const headers = lines[0].split(delimiter).map((header) => header.trim().toLowerCase());
+  const headers = rows[0].map((header) => header.trim().toLowerCase());
   const hasHeader = headers.includes("front") || headers.includes("back");
   const startIndex = hasHeader ? 1 : 0;
 
-  return lines
+  return rows
     .slice(startIndex)
-    .map((line) => {
-      const cells = line.split(delimiter).map((cell) => cell.trim().replace(/^"(.*)"$/, "$1"));
+    .map((row) => {
+      const cells = row.map((cell) => cell.trim());
       if (hasHeader) {
         const frontIndex = headers.indexOf("front");
         const backIndex = headers.indexOf("back");

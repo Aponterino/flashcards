@@ -8,6 +8,7 @@ import { DEFAULT_DAILY_GOAL, getLocalDateISO } from "@/lib/studyCalendar";
 import {
   buildStudyGroupsFromCards,
   buildCatchupStudySet,
+  buildQuizStudySet,
   buildTodayStudySet,
   type StudyCard,
   type StudyDifficulty,
@@ -23,6 +24,7 @@ interface StudyModeProps {
 }
 
 type StudyView = "chooser" | "studying" | "complete";
+type SessionKind = "study" | "learn";
 
 const PRESET_COUNTS = [5, 10, 15, 20, 25, 30];
 
@@ -46,31 +48,6 @@ function cardsByIds(cardIds: string[], cardsById: Map<string, StudyCard>): Study
   return cardIds.map((id) => cardsById.get(id)).filter((card): card is StudyCard => Boolean(card));
 }
 
-function formatShortDate(dateIso: string): string {
-  const parts = dateIso.split("-").map(Number);
-  if (parts.length !== 3 || parts.some(Number.isNaN)) {
-    return dateIso;
-  }
-
-  const [year, month, day] = parts;
-  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function getDueLabel(card: StudyCard, todayIso: string): string {
-  if (card.dueDate < todayIso) {
-    return `Overdue since ${formatShortDate(card.dueDate)}`;
-  }
-
-  if (card.dueDate === todayIso) {
-    return "Due today";
-  }
-
-  return `Due ${formatShortDate(card.dueDate)}`;
-}
-
 function parseDailyGoal(value: unknown): number {
   if (!value || typeof value !== "object") {
     return DEFAULT_DAILY_GOAL;
@@ -90,6 +67,29 @@ function parseDailyGoal(value: unknown): number {
   return Math.max(1, Math.min(500, Math.round(parsed)));
 }
 
+function getStudyFaceSizeClass(text: string): string {
+  const newlineCount = text.match(/\n/g)?.length ?? 0;
+  const effectiveLength = text.trim().length + newlineCount * 24;
+
+  if (effectiveLength >= 430) {
+    return "study-face-copy--dense";
+  }
+
+  if (effectiveLength >= 320) {
+    return "study-face-copy--xlong";
+  }
+
+  if (effectiveLength >= 220) {
+    return "study-face-copy--long";
+  }
+
+  if (effectiveLength >= 140) {
+    return "study-face-copy--medium";
+  }
+
+  return "study-face-copy--default";
+}
+
 export default function StudyMode({ deckId, deckName, cards, initialList, initialMode }: StudyModeProps) {
   const router = useRouter();
   const [studyCards, setStudyCards] = useState<StudyCard[]>(cards);
@@ -100,6 +100,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
   const [showHardReviewAtEnd, setShowHardReviewAtEnd] = useState(false);
   const [sessionLabel, setSessionLabel] = useState("Study Session");
   const [view, setView] = useState<StudyView>("chooser");
+  const [sessionKind, setSessionKind] = useState<SessionKind>("study");
   const [isFlipped, setIsFlipped] = useState(false);
   const [slideDirection, setSlideDirection] = useState<"next" | "previous">("next");
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -173,7 +174,18 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     }
 
     if (initialMode === "all") {
-      beginSession(cards, "Study All", false);
+      beginSession(cards, "Browse Flashcards", false, "learn");
+      return;
+    }
+
+    if (initialMode === "quiz") {
+      const quizCards = buildQuizStudySet(cards, buildStudyGroupsFromCards(cards), Math.max(DEFAULT_DAILY_GOAL, 20));
+      if (quizCards.length === 0) {
+        setView("chooser");
+        return;
+      }
+
+      beginSession(quizCards, "Challenge Quiz", false, "study");
       return;
     }
 
@@ -185,7 +197,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
         return;
       }
 
-      beginSession(startCards, `Review ${listLabel(initialList)} cards`, false);
+      beginSession(startCards, `Browse ${listLabel(initialList)} cards`, false, "learn");
       return;
     }
 
@@ -196,6 +208,10 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
   const currentCard = activeCards[currentIndex] ?? null;
   const progressLabel = activeCards.length > 0 ? `Card ${currentIndex + 1} of ${activeCards.length}` : "";
   const onFirstCard = currentIndex === 0;
+  const onLastCard = activeCards.length === 0 ? true : currentIndex >= activeCards.length - 1;
+  const isLearnSession = sessionKind === "learn";
+  const frontFaceSizeClass = currentCard ? getStudyFaceSizeClass(currentCard.front) : "study-face-copy--default";
+  const backFaceSizeClass = currentCard ? getStudyFaceSizeClass(currentCard.back) : "study-face-copy--default";
 
   async function startTodayIfNeeded() {
     try {
@@ -214,17 +230,20 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     }
   }
 
-  function beginSession(nextCards: StudyCard[], label: string, includeHardReviewAtEnd: boolean) {
+  function beginSession(nextCards: StudyCard[], label: string, includeHardReviewAtEnd: boolean, kind: SessionKind = "study") {
     if (nextCards.length === 0) {
       return;
     }
 
-    void startTodayIfNeeded();
+    if (kind === "study") {
+      void startTodayIfNeeded();
+    }
     setSessionLabel(label);
     setActiveCards(nextCards);
     setCurrentIndex(0);
     setSlideDirection("next");
     setIsFlipped(false);
+    setSessionKind(kind);
     setShowHardReviewAtEnd(includeHardReviewAtEnd);
     setReviewError(null);
     setView("studying");
@@ -334,12 +353,22 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
   }
 
   function goToPreviousCard() {
-    if (onFirstCard) {
+    if (onFirstCard || isRating) {
       return;
     }
 
     setSlideDirection("previous");
     setCurrentIndex((previous) => Math.max(0, previous - 1));
+    setIsFlipped(false);
+  }
+
+  function goToNextCard() {
+    if (onLastCard || isRating) {
+      return;
+    }
+
+    setSlideDirection("next");
+    setCurrentIndex((previous) => Math.min(activeCards.length - 1, previous + 1));
     setIsFlipped(false);
   }
 
@@ -365,27 +394,56 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.code !== "Space") {
+      const target = event.target as HTMLElement | null;
+      const tagName = target?.tagName.toLowerCase();
+
+      if (event.code === "Space") {
+        if (tagName === "input" || tagName === "textarea" || tagName === "button") {
+          return;
+        }
+
+        event.preventDefault();
+        setIsFlipped((previous) => !previous);
         return;
       }
 
-      const target = event.target as HTMLElement | null;
       if (target) {
-        const tagName = target.tagName.toLowerCase();
-        if (tagName === "input" || tagName === "textarea" || tagName === "button") {
+        if (tagName === "input" || tagName === "textarea") {
           return;
         }
       }
 
-      event.preventDefault();
-      toggleFlip();
+      if (!isLearnSession) {
+        return;
+      }
+
+      if (event.code === "ArrowLeft") {
+        event.preventDefault();
+        if (isRating) {
+          return;
+        }
+        setSlideDirection("previous");
+        setCurrentIndex((previous) => Math.max(0, previous - 1));
+        setIsFlipped(false);
+        return;
+      }
+
+      if (event.code === "ArrowRight") {
+        event.preventDefault();
+        if (isRating) {
+          return;
+        }
+        setSlideDirection("next");
+        setCurrentIndex((previous) => Math.min(activeCards.length - 1, previous + 1));
+        setIsFlipped(false);
+      }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentCard, view]);
+  }, [activeCards.length, currentCard, isLearnSession, isRating, view]);
 
   if (!canStudy) {
     return (
@@ -461,53 +519,95 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
       {view === "studying" && currentCard && (
         <section className="study-focused-card">
           <div className="study-card-toolbar">
-            <button
-              aria-label="Go to previous card"
-              className="button ghost study-back-arrow"
-              disabled={onFirstCard || isRating}
-              onClick={goToPreviousCard}
-              type="button"
-            >
-              ←
-            </button>
+            {!isLearnSession && (
+              <button
+                aria-label="Go to previous card"
+                className="button ghost study-back-arrow"
+                disabled={onFirstCard || isRating}
+                onClick={goToPreviousCard}
+                type="button"
+              >
+                ←
+              </button>
+            )}
             <div className="study-toolbar-meta">
               <p className="chip">{progressLabel}</p>
-              <p className="chip study-due-chip">{getDueLabel(currentCard, todayIso)}</p>
+              <p className="chip">{isLearnSession ? "Browse flashcards" : "Study mode"}</p>
             </div>
           </div>
-          <button
-            aria-label={`Flip flashcard. Currently showing ${isFlipped ? "back" : "front"} side.`}
-            className={`study-flashcard-shell ${slideDirection === "next" ? "slide-next" : "slide-previous"}`}
-            key={currentCard.id}
-            onClick={toggleFlip}
-            type="button"
-          >
-            <div className={`study-flashcard${isFlipped ? " flipped" : ""}`}>
-              <div className="study-flashcard-face study-flashcard-front">
-                <span className="study-face-label">Front</span>
-                <p>{currentCard.front}</p>
+
+          <div className={`study-flashcard-nav-row ${isLearnSession ? "learn" : ""}`}>
+            {isLearnSession ? (
+              <button
+                aria-label="Previous card"
+                className="button ghost study-card-nav-button"
+                disabled={onFirstCard || isRating}
+                onClick={goToPreviousCard}
+                type="button"
+              >
+                ←
+              </button>
+            ) : null}
+
+            <button
+              aria-label={`Flip flashcard. Currently showing ${isFlipped ? "back" : "front"} side.`}
+              className={`study-flashcard-shell ${slideDirection === "next" ? "slide-next" : "slide-previous"}`}
+              key={currentCard.id}
+              onClick={toggleFlip}
+              type="button"
+            >
+              <div className={`study-flashcard${isFlipped ? " flipped" : ""}`}>
+                <div className="study-flashcard-face study-flashcard-front">
+                  <span className="study-face-label">Front</span>
+                  <div className={`study-face-copy ${frontFaceSizeClass}`}>
+                    <p>{currentCard.front}</p>
+                  </div>
+                </div>
+                <div className="study-flashcard-face study-flashcard-back">
+                  <span className="study-face-label">Back</span>
+                  <div className={`study-face-copy ${backFaceSizeClass}`}>
+                    <p>{currentCard.back}</p>
+                  </div>
+                </div>
               </div>
-              <div className="study-flashcard-face study-flashcard-back">
-                <span className="study-face-label">Back</span>
-                <p>{currentCard.back}</p>
-              </div>
-            </div>
-          </button>
+            </button>
+
+            {isLearnSession ? (
+              <button
+                aria-label="Next card"
+                className="button ghost study-card-nav-button"
+                disabled={onLastCard || isRating}
+                onClick={goToNextCard}
+                type="button"
+              >
+                →
+              </button>
+            ) : null}
+          </div>
+
+          {isLearnSession ? (
+            <p className="muted study-learn-hint">Use ← and → to navigate cards, and Space to flip.</p>
+          ) : null}
+
           <button className="button ghost study-flip-button" disabled={isRating} onClick={toggleFlip} type="button">
             Flip card
           </button>
-          <div className="difficulty-row">
-            <button className="button difficulty easy" disabled={isRating} type="button" onClick={() => rateCard("easy")}>
-              Easy
-            </button>
-            <button className="button difficulty medium" disabled={isRating} type="button" onClick={() => rateCard("medium")}>
-              Medium
-            </button>
-            <button className="button difficulty hard" disabled={isRating} type="button" onClick={() => rateCard("hard")}>
-              Hard
-            </button>
-          </div>
-          {reviewError ? <p className="study-review-error">{reviewError}</p> : null}
+          {!isLearnSession && (
+            <>
+              <div className="difficulty-row">
+                <button className="button difficulty easy" disabled={isRating} type="button" onClick={() => rateCard("easy")}>
+                  Easy
+                </button>
+                <button className="button difficulty medium" disabled={isRating} type="button" onClick={() => rateCard("medium")}>
+                  Medium
+                </button>
+                <button className="button difficulty hard" disabled={isRating} type="button" onClick={() => rateCard("hard")}>
+                  Hard
+                </button>
+              </div>
+              {reviewError ? <p className="study-review-error">{reviewError}</p> : null}
+            </>
+          )}
         </section>
       )}
 

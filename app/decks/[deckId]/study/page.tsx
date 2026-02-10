@@ -33,6 +33,10 @@ function parseStartMode(value: string | undefined): StudyStartMode | undefined {
     return value;
   }
 
+  if (value === "quiz") {
+    return value;
+  }
+
   return undefined;
 }
 

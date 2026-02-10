@@ -1,5 +1,5 @@
 export type StudyDifficulty = "hard" | "medium" | "easy";
-export type StudyStartMode = "today" | "catchup" | "all";
+export type StudyStartMode = "today" | "catchup" | "all" | "quiz";
 
 export interface StudyCard {
   id: string;
@@ -207,4 +207,62 @@ export function buildCatchupStudySet(cards: StudyCard[], maxCards = 15): StudyCa
     .filter((card) => card.dueDate < todayIso)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, Math.min(maxCards, cards.length));
+}
+
+export function buildQuizStudySet(cards: StudyCard[], groups: StudyGroups, maxCards = 20): StudyCard[] {
+  if (cards.length === 0 || maxCards <= 0) {
+    return [];
+  }
+
+  const cappedCount = Math.min(maxCards, cards.length);
+  const cardMap = new Map(cards.map((card) => [card.id, card]));
+  const hardPool = groups.hard.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
+  const mediumPool = groups.medium.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
+  const easyPool = groups.easy.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
+  const categorizedIds = new Set([...groups.hard, ...groups.medium, ...groups.easy]);
+  const uncategorizedPool = cards.filter((card) => !categorizedIds.has(card.id));
+
+  const progressRatio = clampRatio(categorizedIds.size / cards.length);
+  const challengeShare = 0.65 + 0.2 * progressRatio;
+  const hardShareWithinChallenge = 0.45 + 0.2 * progressRatio;
+
+  const challengeTarget = Math.round(cappedCount * challengeShare);
+  const hardTarget = Math.round(challengeTarget * hardShareWithinChallenge);
+  const mediumTarget = Math.max(0, challengeTarget - hardTarget);
+  const easyTarget = Math.max(0, cappedCount - challengeTarget);
+
+  const selected: StudyCard[] = [];
+  const selectedIds = new Set<string>();
+
+  function pushFrom(pool: StudyCard[], count: number) {
+    if (count <= 0) {
+      return;
+    }
+
+    for (const card of pool) {
+      if (selected.length >= cappedCount || count <= 0) {
+        break;
+      }
+      if (selectedIds.has(card.id)) {
+        continue;
+      }
+
+      selected.push(card);
+      selectedIds.add(card.id);
+      count -= 1;
+    }
+  }
+
+  pushFrom(hardPool, hardTarget);
+  pushFrom(mediumPool, mediumTarget);
+  pushFrom(mediumPool, challengeTarget - selected.length);
+  pushFrom(hardPool, challengeTarget - selected.length);
+  pushFrom(easyPool, easyTarget);
+  pushFrom(uncategorizedPool, cappedCount - selected.length);
+  pushFrom(easyPool, cappedCount - selected.length);
+  pushFrom(mediumPool, cappedCount - selected.length);
+  pushFrom(hardPool, cappedCount - selected.length);
+  pushFrom(cards, cappedCount - selected.length);
+
+  return selected.slice(0, cappedCount);
 }

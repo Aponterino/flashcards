@@ -4,6 +4,7 @@
 /dist
 /.env
 /.env.*
+*.tsbuildinfo
 
 # Drizzle
 /db/migrations/meta

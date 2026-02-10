@@ -14,8 +14,7 @@ import {
 } from "@/lib/actions";
 import { getCardsByDeck } from "@/lib/queries/cards";
 import { getDeckById } from "@/lib/queries/decks";
-import { getDeckStudyCalendar } from "@/lib/queries/studyCalendar";
-import { buildStudyGroupsFromCards, type StudyDifficulty } from "@/lib/studySession";
+import type { StudyDifficulty } from "@/lib/studySession";
 
 export const dynamic = "force-dynamic";
 
@@ -66,7 +65,7 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
     notFound();
   }
 
-  const [cards, studyCalendar] = await Promise.all([getCardsByDeck(deckId), getDeckStudyCalendar(deckId)]);
+  const cards = await getCardsByDeck(deckId);
   const studyCards = cards.map((card) => ({
     id: card.id,
     front: card.front,
@@ -76,9 +75,7 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
     easeFactor: card.easeFactor,
     lastDifficulty: parseLastDifficulty(card.lastDifficulty),
   }));
-  const studyGroups = buildStudyGroupsFromCards(studyCards);
-  const studiedCount = studyGroups.hard.length + studyGroups.medium.length + studyGroups.easy.length;
-  const isOnboardingPhase = studiedCount === 0 && !studyCalendar.goalConfigured;
+  const isDeckEmpty = cards.length === 0;
   const editingCardId = edit ?? "";
 
   return (
@@ -120,15 +117,20 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
 
       <StudySession cards={studyCards} deckId={deckId} />
 
-      <section className="card stack">
+      <section className="card stack" id="add-cards-section">
         <div className="cards-section-header">
           <h3>Add a card</h3>
-          {isOnboardingPhase ? (
+          {isDeckEmpty ? (
             <Link className="button ghost" href="#deck-settings">
               Import cards
             </Link>
           ) : null}
         </div>
+        {isDeckEmpty ? (
+          <p className="subtitle add-cards-guidance">
+            Add cards before studying. Enter cards below or use Import cards.
+          </p>
+        ) : null}
         <form className="stack" action={createCardAction}>
           <input type="hidden" name="deckId" value={deckId} />
           <label className="field">

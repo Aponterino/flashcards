@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   DEFAULT_DAILY_GOAL,
@@ -238,6 +239,7 @@ function getWeaknessLabel(value: "hard" | "medium" | "easy" | null): string {
 }
 
 export default function StudySession({ deckId, cards }: StudySessionProps) {
+  const router = useRouter();
   const groups = useMemo(() => buildStudyGroupsFromCards(cards), [cards]);
   const cardMap = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
 
@@ -306,6 +308,7 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
   const dueSessionHelpId = useMemo(() => `study-due-help-${safeDeckId}`, [safeDeckId]);
   const customSessionHelpId = useMemo(() => `study-custom-help-${safeDeckId}`, [safeDeckId]);
   const allSessionHelpId = useMemo(() => `study-all-help-${safeDeckId}`, [safeDeckId]);
+  const quizSessionHelpId = useMemo(() => `study-quiz-help-${safeDeckId}`, [safeDeckId]);
 
   const todayEntry = calendarState.days[todayIso];
   const todayGoal = todayEntry?.goal ?? calendarState.dailyGoal;
@@ -499,6 +502,27 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
 
   const selectedEntry = selectedDateIso ? calendarState.days[selectedDateIso] : undefined;
 
+  function jumpToAddCardsSection() {
+    const addCardsSection = document.getElementById("add-cards-section");
+    if (addCardsSection) {
+      addCardsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    if (typeof window !== "undefined") {
+      const nextUrl = `${window.location.pathname}${window.location.search}#add-cards-section`;
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }
+
+  function handleWelcomeStudyAll() {
+    if (totalCards === 0) {
+      jumpToAddCardsSection();
+      return;
+    }
+
+    router.push(`/decks/${deckId}/study?mode=all`);
+  }
+
   function shiftCalendarMonth(offset: number) {
     if (calendarView === "week") {
       return;
@@ -594,44 +618,62 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
       {showNewDeckWelcome ? (
         <section className="study-welcome-card" aria-label="New deck setup">
           <p className="study-welcome-eyebrow">Let&apos;s begin studying</p>
-          <h4>Set your daily goal</h4>
-          <p className="study-welcome-copy">
-            Please choose how many cards you want to study each day. You can change this anytime.
-          </p>
-
-          <div className="study-goal-presets">
-            {GOAL_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                className={`button ghost study-goal-preset ${projectedGoal === preset ? "active" : ""}`}
-                type="button"
-                onClick={() => setGoalInput(String(preset))}
-              >
-                {preset}/day
+          <h4>Choose your first study path</h4>
+          <p className="study-welcome-copy">Start with a full-deck review or set a daily goal for steady progress.</p>
+          <div className="study-welcome-grid">
+            <article className="study-welcome-option study-welcome-option-all" aria-label="Browse flashcards option">
+              <p className="study-welcome-option-eyebrow">Quick Start</p>
+              <h5>Browse flashcards</h5>
+              <p className="study-welcome-option-copy">
+                Browse every card in this deck with free navigation and no grading.
+              </p>
+              <button className="button ghost" onClick={handleWelcomeStudyAll} type="button">
+                Browse flashcards
               </button>
-            ))}
+            </article>
+
+            <article className="study-welcome-option study-welcome-option-goal" aria-label="Set daily goal option">
+              <p className="study-welcome-recommended">Recommended</p>
+              <p className="study-welcome-option-eyebrow">Consistency Track</p>
+              <h5>Set your daily goal</h5>
+              <p className="study-welcome-option-copy">
+                Choose how many cards to study each day. You can adjust this anytime.
+              </p>
+
+              <div className="study-goal-presets">
+                {GOAL_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    className={`button ghost study-goal-preset ${projectedGoal === preset ? "active" : ""}`}
+                    type="button"
+                    onClick={() => setGoalInput(String(preset))}
+                  >
+                    {preset}/day
+                  </button>
+                ))}
+              </div>
+
+              <form className="study-goal-form study-welcome-goal-form" onSubmit={saveGoal}>
+                <input
+                  aria-label="Daily goal"
+                  className="study-goal-input"
+                  inputMode="numeric"
+                  min={1}
+                  max={500}
+                  onChange={(event) => setGoalInput(event.target.value)}
+                  type="number"
+                  value={goalInput}
+                />
+                <button className="button primary" type="submit">
+                  Set Daily Goal
+                </button>
+              </form>
+
+              <button className="button ghost study-suggest-button" onClick={applySuggestedGoal} type="button">
+                Use Suggested Goal ({suggestedGoal}/day)
+              </button>
+            </article>
           </div>
-
-          <form className="study-goal-form study-welcome-goal-form" onSubmit={saveGoal}>
-            <input
-              aria-label="Daily goal"
-              className="study-goal-input"
-              inputMode="numeric"
-              min={1}
-              max={500}
-              onChange={(event) => setGoalInput(event.target.value)}
-              type="number"
-              value={goalInput}
-            />
-            <button className="button primary" type="submit">
-              Set Daily Goal
-            </button>
-          </form>
-
-          <button className="button ghost study-suggest-button" onClick={applySuggestedGoal} type="button">
-            Use Suggested Goal ({suggestedGoal}/day)
-          </button>
-
         </section>
       ) : (
       <div className={`study-dashboard-shell ${animateDashboard ? "enter" : ""}`}>
@@ -704,15 +746,32 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                     ∞
                   </span>
                   <div>
-                    <p className="study-action-title">Study All</p>
+                    <p className="study-action-title">Browse Flashcards</p>
                     <p className="study-action-meta">Entire deck</p>
                   </div>
                 </div>
                 <p className="study-action-help" id={allSessionHelpId}>
-                  View every card in this deck in one full session.
+                  Browse every card with arrow-key navigation and no grading.
                 </p>
                 <Link className="button ghost" href={`/decks/${deckId}/study?mode=all`} aria-describedby={allSessionHelpId}>
-                  Study all cards
+                  Browse flashcards
+                </Link>
+              </div>
+              <div className="study-action-item">
+                <div className="study-action-head">
+                  <span className="study-action-icon" aria-hidden="true">
+                    ★
+                  </span>
+                  <div>
+                    <p className="study-action-title">Challenge Quiz</p>
+                    <p className="study-action-meta">Progressive mix</p>
+                  </div>
+                </div>
+                <p className="study-action-help" id={quizSessionHelpId}>
+                  Regrade cards with a progressive medium-to-hard focused mix.
+                </p>
+                <Link className="button ghost" href={`/decks/${deckId}/study?mode=quiz`} aria-describedby={quizSessionHelpId}>
+                  Start challenge quiz
                 </Link>
               </div>
             </div>
@@ -761,15 +820,32 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                     ∞
                   </span>
                   <div>
-                    <p className="study-action-title">Study All</p>
+                    <p className="study-action-title">Browse Flashcards</p>
                     <p className="study-action-meta">Entire deck</p>
                   </div>
                 </div>
                 <p className="study-action-help" id={allSessionHelpId}>
-                  View every card in this deck in one full session.
+                  Browse every card with arrow-key navigation and no grading.
                 </p>
                 <Link className="button ghost" href={`/decks/${deckId}/study?mode=all`} aria-describedby={allSessionHelpId}>
-                  Study all cards
+                  Browse flashcards
+                </Link>
+              </div>
+              <div className="study-action-item">
+                <div className="study-action-head">
+                  <span className="study-action-icon" aria-hidden="true">
+                    ★
+                  </span>
+                  <div>
+                    <p className="study-action-title">Challenge Quiz</p>
+                    <p className="study-action-meta">Progressive mix</p>
+                  </div>
+                </div>
+                <p className="study-action-help" id={quizSessionHelpId}>
+                  Regrade cards with a progressive medium-to-hard focused mix.
+                </p>
+                <Link className="button ghost" href={`/decks/${deckId}/study?mode=quiz`} aria-describedby={quizSessionHelpId}>
+                  Start challenge quiz
                 </Link>
               </div>
             </div>
@@ -789,7 +865,7 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
       <section className="session-card stack study-tracks-panel" aria-label="Challenge tracks">
         <div>
           <h4 className="study-tracks-title">Challenge tracks</h4>
-          <p className="muted">Choose a focused difficulty lane when you want targeted practice.</p>
+          <p className="muted">Browse a focused difficulty lane to learn patterns without grading.</p>
         </div>
         <div className="study-summary-grid">
           {([
@@ -823,11 +899,12 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                 )}
               </ul>
               <Link className={`button difficulty ${type} study-summary-action`} href={`/decks/${deckId}/study?list=${type}`}>
-                Review {listLabel(type)}
+                Browse {listLabel(type)}
               </Link>
             </article>
           ))}
         </div>
+        <p className="muted">Challenge Quiz is available in the Start a study session section above.</p>
       </section>
       ) : null}
       <section className="study-analytics-section" aria-label="Progress and planning">
