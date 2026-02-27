@@ -470,11 +470,49 @@ textarea:focus-visible {
 }
 
 .sidebar-deck-node {
-  cursor: grab;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: default;
+  user-select: none;
 }
 
 .sidebar-deck-node.dragging {
+  cursor: default;
+}
+
+.sidebar-deck-drag-handle {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.sidebar-deck-drag-handle:hover,
+.sidebar-deck-drag-handle:focus-visible {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--surface-muted);
+}
+
+.sidebar-deck-node.dragging .sidebar-deck-drag-handle {
   cursor: grabbing;
+}
+
+.sidebar-deck-node .sidebar-sublink {
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+  user-select: none;
 }
 
 .sidebar-deck-node.dragging .sidebar-sublink {
@@ -499,8 +537,22 @@ textarea:focus-visible {
   cursor: copy;
 }
 
+.sidebar-drop-top-level.drop-target {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: color-mix(in oklab, var(--chip-bg) 32%, var(--surface-muted));
+}
+
 .sidebar-drop-top-level.disabled {
   opacity: 0.7;
+}
+
+body.deck-drag-active {
+  user-select: none;
+}
+
+body.deck-drag-active .sidebar-deck-drag-handle {
+  cursor: grabbing;
 }
 
 @keyframes deck-item-added {
