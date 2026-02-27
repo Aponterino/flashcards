@@ -1,34 +1,34 @@
 import { NextResponse } from "next/server";
-import { isNull } from "drizzle-orm";
 
-import { decks } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
+import { createDeckWithParent, DeckHierarchyError, getDecks } from "@/lib/queries/decks";
 
 export async function GET() {
-  await ensureDbReady();
-  const db = getDb();
-  const results = await db.select().from(decks).where(isNull(decks.deletedAt));
-  return NextResponse.json(results);
+  const results = await getDecks();
+  return NextResponse.json(results, { status: 200 });
 }
 
 export async function POST(request: Request) {
-  let payload: { name?: unknown };
+  let payload: { name?: unknown; parentDeckId?: unknown };
 
   try {
-    payload = (await request.json()) as { name?: unknown };
+    payload = (await request.json()) as { name?: unknown; parentDeckId?: unknown };
   } catch {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
   const rawName = typeof payload.name === "string" ? payload.name : "";
   const name = rawName.trim() || "Untitled Deck";
+  const parentDeckIdRaw = typeof payload.parentDeckId === "string" ? payload.parentDeckId.trim() : "";
+  const parentDeckId = parentDeckIdRaw || null;
 
   try {
-    await ensureDbReady();
-    const db = getDb();
-    const [deck] = await db.insert(decks).values({ name }).returning();
+    const deck = await createDeckWithParent(name, parentDeckId);
     return NextResponse.json(deck, { status: 201 });
-  } catch {
+  } catch (error) {
+    if (error instanceof DeckHierarchyError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json({ error: "Failed to create deck" }, { status: 500 });
   }
 }

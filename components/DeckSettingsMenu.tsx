@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
 import { parseImportFile, type ImportedCardInput } from "@/lib/importExport";
@@ -11,6 +11,7 @@ interface DeckSettingsMenuProps {
   resetLearningAction: (formData: FormData) => void | Promise<void>;
   resolveImportAction: (formData: FormData) => void | Promise<void>;
   existingCards: Array<{ id: string; front: string; back: string }>;
+  importResultKey?: string;
 }
 
 interface DuplicateCandidate {
@@ -25,20 +26,38 @@ function normalizeMatchValue(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function isNavigationSignal(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (typeof error === "object") {
+    const maybeDigest = (error as { digest?: unknown }).digest;
+    if (typeof maybeDigest === "string" && maybeDigest.includes("NEXT_REDIRECT")) {
+      return true;
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message.includes("NEXT_REDIRECT");
+  }
+
+  return false;
+}
+
 export default function DeckSettingsMenu({
   deckId,
   archiveAction,
   resetLearningAction,
   resolveImportAction,
   existingCards,
+  importResultKey,
 }: DeckSettingsMenuProps) {
   const [incomingCards, setIncomingCards] = useState<ImportedCardInput[]>([]);
   const [duplicateCards, setDuplicateCards] = useState<DuplicateCandidate[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [importStatus, setImportStatus] = useState("");
   const [statusTone, setStatusTone] = useState<"muted" | "error">("muted");
 
-  const hasImportPreview = incomingCards.length > 0 || duplicateCards.length > 0;
   const duplicatePayload = useMemo(
     () =>
       duplicateCards.map((duplicate) => ({
@@ -47,6 +66,18 @@ export default function DeckSettingsMenu({
       })),
     [duplicateCards]
   );
+  const hasImportPayload = incomingCards.length > 0 || duplicateCards.length > 0;
+
+  useEffect(() => {
+    if (!importResultKey) {
+      return;
+    }
+
+    setIncomingCards([]);
+    setDuplicateCards([]);
+    setImportStatus("");
+    setStatusTone("muted");
+  }, [importResultKey]);
 
   function handleDeleteConfirm(event: FormEvent<HTMLFormElement>) {
     const confirmed = window.confirm("Delete this deck? You can find it later in Deleted Decks.");
@@ -65,7 +96,6 @@ export default function DeckSettingsMenu({
   function handleImportFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
-      setSelectedFile(null);
       setIncomingCards([]);
       setDuplicateCards([]);
       setImportStatus("");
@@ -73,21 +103,24 @@ export default function DeckSettingsMenu({
       return;
     }
 
-    setSelectedFile(file);
-    setIncomingCards([]);
-    setDuplicateCards([]);
-    setImportStatus(`Ready to upload: ${file.name}`);
-    setStatusTone("muted");
+    void processImportFile(file);
+    event.currentTarget.value = "";
   }
 
-  async function handlePrepareImport() {
-    if (!selectedFile) {
-      return;
-    }
-
+  async function processImportFile(file: File) {
     try {
-      const text = await selectedFile.text();
-      const imported = parseImportFile(selectedFile.name, text);
+      setImportStatus(`Reading ${file.name}...`);
+      setStatusTone("muted");
+      const text = await file.text();
+      const imported = parseImportFile(file.name, text);
+
+      if (imported.length === 0) {
+        setIncomingCards([]);
+        setDuplicateCards([]);
+        setImportStatus("No cards found in this file.");
+        setStatusTone("error");
+        return;
+      }
 
       const nextIncoming: ImportedCardInput[] = [];
       const nextDuplicates: DuplicateCandidate[] = [];
@@ -119,11 +152,27 @@ export default function DeckSettingsMenu({
 
       setIncomingCards(nextIncoming);
       setDuplicateCards(nextDuplicates);
+
+      if (existingCards.length === 0 || nextDuplicates.length === 0) {
+        const formData = new FormData();
+        formData.set("deckId", deckId);
+        formData.set("strategy", "merge");
+        formData.set("incomingCards", JSON.stringify(nextIncoming));
+        formData.set("duplicateCards", "[]");
+        setImportStatus(`Uploading ${imported.length} card${imported.length === 1 ? "" : "s"}...`);
+        setStatusTone("muted");
+        await resolveImportAction(formData);
+        return;
+      }
+
       setImportStatus(
         `Parsed ${imported.length} card${imported.length === 1 ? "" : "s"}: ${nextIncoming.length} new, ${nextDuplicates.length} duplicates found.`
       );
       setStatusTone("muted");
-    } catch {
+    } catch (error) {
+      if (isNavigationSignal(error)) {
+        return;
+      }
       setIncomingCards([]);
       setDuplicateCards([]);
       setImportStatus("Import failed. Please check the file format.");
@@ -140,6 +189,13 @@ export default function DeckSettingsMenu({
       <summary className="button ghost deck-menu-trigger">Deck Settings</summary>
       <div className="deck-menu-content card">
         <p className="deck-menu-title">Deck settings</p>
+        <section className="deck-menu-section stack">
+          <p className="deck-menu-label">Study</p>
+          <a className="button ghost deck-menu-full-button" href={`/decks/${deckId}#daily-goal-settings`}>
+            Change daily goal
+          </a>
+        </section>
+
         <section className="deck-menu-section stack">
           <p className="deck-menu-label">Recovery</p>
           <a className="button ghost deck-menu-full-button" href={`/decks/${deckId}/versions`}>
@@ -185,9 +241,6 @@ export default function DeckSettingsMenu({
               <label className="button ghost file-input-button" htmlFor={`deck-import-file-${deckId}`}>
                 Choose import file
               </label>
-              <button className="button ghost" disabled={!selectedFile} onClick={handlePrepareImport} type="button">
-                Upload
-              </button>
             </div>
             {importStatus ? (
               <p className={statusTone === "error" ? "subtitle import-status-error" : "subtitle"}>{importStatus}</p>
@@ -246,17 +299,25 @@ export default function DeckSettingsMenu({
             </div>
           ) : null}
 
-          {hasImportPreview ? (
+          {hasImportPayload ? (
             <form action={resolveImportAction} className="deck-menu-button-grid">
               <input type="hidden" name="deckId" value={deckId} />
               <input type="hidden" name="incomingCards" value={JSON.stringify(incomingCards)} />
               <input type="hidden" name="duplicateCards" value={JSON.stringify(duplicatePayload)} />
-              <button className="button primary" name="strategy" type="submit" value="merge">
-                Upload and Merge
-              </button>
-              <button className="button danger" name="strategy" type="submit" value="replace">
-                Upload and Replace
-              </button>
+              {duplicateCards.length > 0 ? (
+                <>
+                  <button className="button primary" name="strategy" type="submit" value="merge">
+                    Upload and Merge
+                  </button>
+                  <button className="button danger" name="strategy" type="submit" value="replace">
+                    Upload and Replace
+                  </button>
+                </>
+              ) : (
+                <button className="button primary" name="strategy" type="submit" value="merge">
+                  Upload cards
+                </button>
+              )}
             </form>
           ) : null}
         </section>

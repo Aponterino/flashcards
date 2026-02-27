@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const decks = await getDecks();
-  const lastDeck = decks[0] ?? null;
+  const deckIds = new Set(decks.map((deck) => deck.id));
+  const rootDecks = decks.filter((deck) => !deck.parentDeckId || !deckIds.has(deck.parentDeckId));
+  const lastDeck = rootDecks[0] ?? null;
 
   return (
     <section className="stack">
@@ -39,7 +41,7 @@ export default async function HomePage() {
           </div>
         </Link>
       </div>
-      <DeckList decks={decks} />
+      <DeckList decks={rootDecks} />
     </section>
   );
 }

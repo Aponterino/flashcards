@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { cards } from "@/db/schema";
 import { ensureDbReady, getDb } from "@/lib/db";
+import { getDeckScopeIds } from "@/lib/queries/decks";
 
 export interface CardRecord {
   id: string;
@@ -84,6 +85,26 @@ export async function getCardsByDeck(deckId: string): Promise<CardRecord[]> {
   }
 }
 
+export async function getCardsByDeckIds(deckIds: string[]): Promise<CardRecord[]> {
+  if (deckIds.length === 0) {
+    return [];
+  }
+
+  try {
+    await ensureDbReady();
+    const db = getDb();
+    return db.select().from(cards).where(inArray(cards.deckId, deckIds)).orderBy(asc(cards.dueDate));
+  } catch (error) {
+    console.error("Failed to load cards for decks", error);
+    return [];
+  }
+}
+
+export async function getCardsForStudyDeck(deckId: string): Promise<CardRecord[]> {
+  const scopeDeckIds = await getDeckScopeIds(deckId);
+  return getCardsByDeckIds(scopeDeckIds);
+}
+
 export async function createCard(payload: {
   deckId: string;
   front: string;
@@ -116,8 +137,23 @@ export async function createCards(
     lastDifficulty?: ReviewDifficulty | null;
   }>
 ): Promise<number> {
+  const insertedIds = await createCardsWithIds(payload);
+  return insertedIds.length;
+}
+
+export async function createCardsWithIds(
+  payload: Array<{
+    deckId: string;
+    front: string;
+    back: string;
+    dueDate?: string;
+    intervalDays?: number;
+    easeFactor?: string;
+    lastDifficulty?: ReviewDifficulty | null;
+  }>
+): Promise<string[]> {
   if (payload.length === 0) {
-    return 0;
+    return [];
   }
 
   await ensureDbReady();
@@ -133,7 +169,7 @@ export async function createCards(
   }));
 
   const inserted = await db.insert(cards).values(values).returning({ id: cards.id });
-  return inserted.length;
+  return inserted.map((card) => card.id);
 }
 
 export async function updateCard(payload: {

@@ -1,4 +1,5 @@
 import {
+  type AnyPgColumn,
   boolean,
   date,
   integer,
@@ -13,6 +14,8 @@ import {
 export const decks = pgTable("decks", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  parentDeckId: uuid("parent_deck_id").references((): AnyPgColumn => decks.id, { onDelete: "set null" }),
+  sortOrder: integer("sort_order").notNull().default(0),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

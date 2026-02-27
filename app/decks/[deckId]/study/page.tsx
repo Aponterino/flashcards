@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import StudyMode from "@/components/StudyMode";
-import { getCardsByDeck } from "@/lib/queries/cards";
+import { getCardsForStudyDeck } from "@/lib/queries/cards";
 import { getDeckById } from "@/lib/queries/decks";
 import type { StudyDifficulty, StudyStartMode } from "@/lib/studySession";
 
@@ -33,6 +33,10 @@ function parseStartMode(value: string | undefined): StudyStartMode | undefined {
     return value;
   }
 
+  if (value === "challenge") {
+    return value;
+  }
+
   if (value === "quiz") {
     return value;
   }
@@ -57,7 +61,7 @@ export default async function StudyPage({ params, searchParams }: StudyPageProps
     notFound();
   }
 
-  const cards = await getCardsByDeck(deckId);
+  const cards = await getCardsForStudyDeck(deckId);
   const studyCards = cards.map((card) => ({
     id: card.id,
     front: card.front,

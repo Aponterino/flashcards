@@ -1,8 +1,9 @@
-import { and, asc, count, eq, lt, lte } from "drizzle-orm";
+import { and, asc, count, eq, inArray, lt, lte } from "drizzle-orm";
 
 import { cards, deckStudyDays, deckStudySettings } from "@/db/schema";
 import { ensureDbReady, getDb } from "@/lib/db";
 import type { ReviewDifficulty } from "@/lib/queries/cards";
+import { getDeckScopeIds } from "@/lib/queries/decks";
 
 export const DEFAULT_DAILY_GOAL = 20;
 
@@ -62,14 +63,22 @@ function mapCalendarDay(row: typeof deckStudyDays.$inferSelect): StudyCalendarDa
 
 async function getDueSnapshots(deckId: string, dateIso: string): Promise<{ dueCount: number; overdueCount: number }> {
   const db = getDb();
+  const scopeDeckIds = await getDeckScopeIds(deckId);
+  if (scopeDeckIds.length === 0) {
+    return {
+      dueCount: 0,
+      overdueCount: 0,
+    };
+  }
+
   const [due] = await db
     .select({ count: count() })
     .from(cards)
-    .where(and(eq(cards.deckId, deckId), lte(cards.dueDate, dateIso)));
+    .where(and(inArray(cards.deckId, scopeDeckIds), lte(cards.dueDate, dateIso)));
   const [overdue] = await db
     .select({ count: count() })
     .from(cards)
-    .where(and(eq(cards.deckId, deckId), lt(cards.dueDate, dateIso)));
+    .where(and(inArray(cards.deckId, scopeDeckIds), lt(cards.dueDate, dateIso)));
 
   return {
     dueCount: due?.count ?? 0,

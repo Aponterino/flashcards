@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 interface CardListItemProps {
   cardId: string;
   deckId: string;
+  viewDeckId?: string;
   initialBack: string;
   initialFront: string;
   statusLabel: string;
@@ -15,15 +17,19 @@ interface CardListItemProps {
 export default function CardListItem({
   cardId,
   deckId,
+  viewDeckId,
   initialBack,
   initialFront,
   statusLabel,
   statusTone,
 }: CardListItemProps) {
+  const router = useRouter();
   const [cardText, setCardText] = useState({ front: initialFront, back: initialBack });
   const [isSwappingSingle, setIsSwappingSingle] = useState(false);
+  const [isDeletingSingle, setIsDeletingSingle] = useState(false);
   const [isSwapAllPending, setIsSwapAllPending] = useState(false);
   const [swapPulse, setSwapPulse] = useState(false);
+  const [isDeleted, setIsDeleted] = useState(false);
   const pulseTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -74,7 +80,7 @@ export default function CardListItem({
   }, [deckId]);
 
   async function handleSwap() {
-    if (isSwappingSingle || isSwapAllPending) {
+    if (isSwappingSingle || isSwapAllPending || isDeletingSingle) {
       return;
     }
 
@@ -102,7 +108,42 @@ export default function CardListItem({
     }
   }
 
-  const isPending = isSwappingSingle || isSwapAllPending;
+  async function handleDelete() {
+    if (isDeletingSingle || isSwappingSingle || isSwapAllPending) {
+      return;
+    }
+
+    const confirmed = window.confirm("Delete this card?");
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingSingle(true);
+
+    try {
+      const response = await fetch("/api/cards/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId, cardId }),
+      });
+
+      if (!response.ok) {
+        setIsDeletingSingle(false);
+        return;
+      }
+
+      setIsDeleted(true);
+      router.refresh();
+    } finally {
+      setIsDeletingSingle(false);
+    }
+  }
+
+  if (isDeleted) {
+    return null;
+  }
+
+  const isPending = isSwappingSingle || isSwapAllPending || isDeletingSingle;
   const transitionClass = `card-text-transition${isPending ? " is-pending" : ""}${swapPulse ? " is-swapped" : ""}`;
 
   return (
@@ -150,7 +191,12 @@ export default function CardListItem({
         <Link
           aria-label={`Edit card: ${cardText.front}`}
           className="button ghost card-edit-button card-hover-action"
-          href={`/decks/${deckId}?edit=${cardId}#card-${cardId}`}
+          href={`/decks/${viewDeckId ?? deckId}?edit=${cardId}#card-${cardId}`}
+          onClick={(event) => {
+            if (isPending) {
+              event.preventDefault();
+            }
+          }}
         >
           <svg
             aria-hidden="true"
@@ -176,6 +222,44 @@ export default function CardListItem({
           </svg>
           <span>Edit</span>
         </Link>
+        <button
+          aria-label={`Delete card: ${cardText.front}`}
+          className="button ghost-danger card-edit-button card-hover-action"
+          disabled={isPending}
+          onClick={handleDelete}
+          type="button"
+        >
+          <svg
+            aria-hidden="true"
+            className="card-edit-icon"
+            fill="none"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M3 6h18"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+            <path
+              d="M8 6V4h8v2"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+            <path
+              d="M6 6l1 14h10l1-14"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+            />
+          </svg>
+          <span>{isDeletingSingle ? "Deleting..." : "Delete"}</span>
+        </button>
         <span className={`chip study-status-chip study-status-${statusTone}`}>{statusLabel}</span>
       </div>
     </>

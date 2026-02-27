@@ -4,18 +4,87 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import type { ImportedCardInput } from "@/lib/importExport";
-import { createCard, createCards, deleteCardsByIds, resetDeckCardStudyState, swapCardFrontBackByDeck, swapCardFrontBackById, updateCard } from "@/lib/queries/cards";
-import { archiveDeck, createDeck, purgeDeletedDecks, restoreDeck } from "@/lib/queries/decks";
+import { createCard, createCardsWithIds, deleteCardsByIds, resetDeckCardStudyState, swapCardFrontBackByDeck, swapCardFrontBackById, updateCard } from "@/lib/queries/cards";
+import { archiveDeck, createDeckWithParent, DeckHierarchyError, getDeckById, moveDeckToParent, purgeDeletedDecks, restoreDeck } from "@/lib/queries/decks";
 import { resetDeckStudyCalendar } from "@/lib/queries/studyCalendar";
 import { createDeckVersionSnapshot, restoreCardFromVersion, restoreDeckFromVersion } from "@/lib/queries/versions";
 
+function appendSearchParam(path: string, key: string, value: string): string {
+  const [pathWithSearch, hashFragment = ""] = path.split("#", 2);
+  const [pathname, search = ""] = pathWithSearch.split("?", 2);
+  const params = new URLSearchParams(search);
+  params.set(key, value);
+  const queryString = params.toString();
+  return `${pathname}${queryString ? `?${queryString}` : ""}${hashFragment ? `#${hashFragment}` : ""}`;
+}
+
 export async function createDeckAction(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
-  const deck = await createDeck(name || "Untitled Deck");
-  await createDeckVersionSnapshot(deck.id, "Deck created");
-  revalidatePath("/");
-  revalidatePath("/decks");
-  redirect(`/decks/${deck.id}`);
+  const parentDeckIdValue = String(formData.get("parentDeckId") || "").trim();
+  const redirectTo = String(formData.get("redirectTo") || "").trim();
+  const parentDeckId = parentDeckIdValue || null;
+
+  try {
+    const deck = await createDeckWithParent(name || "Untitled Deck", parentDeckId);
+    await createDeckVersionSnapshot(deck.id, "Deck created");
+    revalidatePath("/");
+    revalidatePath("/decks");
+    if (parentDeckId) {
+      revalidatePath(`/decks/${parentDeckId}`);
+    }
+    if (redirectTo.startsWith("/")) {
+      if (parentDeckId) {
+        redirect(appendSearchParam(redirectTo, "navRefresh", String(Date.now())));
+      }
+      redirect(redirectTo);
+    }
+    redirect(`/decks/${deck.id}`);
+  } catch (error) {
+    if (error instanceof DeckHierarchyError) {
+      const fallback = redirectTo.startsWith("/") ? redirectTo : "/decks/new";
+      const params = new URLSearchParams();
+      params.set("hierarchyError", error.message);
+      redirect(`${fallback}${fallback.includes("?") ? "&" : "?"}${params.toString()}`);
+    }
+    throw error;
+  }
+}
+
+export async function moveDeckParentAction(formData: FormData) {
+  const deckId = String(formData.get("deckId") || "").trim();
+  const parentDeckIdValue = String(formData.get("parentDeckId") || "").trim();
+  const afterDeckIdValue = String(formData.get("afterDeckId") || "").trim();
+  const redirectTo = String(formData.get("redirectTo") || "").trim();
+  const nextParentDeckId = parentDeckIdValue || null;
+  const afterDeckId = afterDeckIdValue || null;
+
+  if (!deckId) {
+    return;
+  }
+
+  const safeRedirect = redirectTo.startsWith("/") ? redirectTo : `/decks/${deckId}`;
+  const previousDeck = await getDeckById(deckId);
+
+  try {
+    const movedDeck = await moveDeckToParent(deckId, nextParentDeckId, afterDeckId);
+    revalidatePath("/");
+    revalidatePath("/decks");
+    revalidatePath(`/decks/${deckId}`);
+    if (previousDeck?.parentDeckId) {
+      revalidatePath(`/decks/${previousDeck.parentDeckId}`);
+    }
+    if (movedDeck.parentDeckId) {
+      revalidatePath(`/decks/${movedDeck.parentDeckId}`);
+    }
+    redirect(appendSearchParam(safeRedirect, "navRefresh", String(Date.now())));
+  } catch (error) {
+    if (error instanceof DeckHierarchyError) {
+      const params = new URLSearchParams();
+      params.set("hierarchyError", error.message);
+      redirect(`${safeRedirect}${safeRedirect.includes("?") ? "&" : "?"}${params.toString()}`);
+    }
+    throw error;
+  }
 }
 
 export async function createCardAction(formData: FormData) {
@@ -53,6 +122,7 @@ export async function archiveDeckAction(formData: FormData) {
 export async function updateCardAction(formData: FormData) {
   const cardId = String(formData.get("cardId") || "");
   const deckId = String(formData.get("deckId") || "");
+  const redirectToDeckId = String(formData.get("redirectToDeckId") || "").trim();
   const front = String(formData.get("front") || "").trim();
   const back = String(formData.get("back") || "").trim();
 
@@ -67,12 +137,35 @@ export async function updateCardAction(formData: FormData) {
 
   await createDeckVersionSnapshot(deckId, "Card updated");
   revalidatePath(`/decks/${deckId}`);
+  if (redirectToDeckId) {
+    revalidatePath(`/decks/${redirectToDeckId}`);
+    redirect(`/decks/${redirectToDeckId}`);
+  }
   redirect(`/decks/${deckId}`);
 }
 
 interface DuplicateResolutionInput {
   existingCardId: string;
   imported: ImportedCardInput;
+}
+
+function isNavigationSignal(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  if (typeof error === "object") {
+    const maybeDigest = (error as { digest?: unknown }).digest;
+    if (typeof maybeDigest === "string" && maybeDigest.includes("NEXT_REDIRECT")) {
+      return true;
+    }
+  }
+
+  if (error instanceof Error) {
+    return error.message.includes("NEXT_REDIRECT");
+  }
+
+  return false;
 }
 
 function sanitizeImportedCards(cards: ImportedCardInput[]): ImportedCardInput[] {
@@ -100,6 +193,7 @@ export async function resolveImportedCardsAction(formData: FormData) {
   let addedCount = 0;
   let mergedCount = 0;
   let replacedCount = 0;
+  const importedCardIds: string[] = [];
 
   try {
     const incomingParsed = JSON.parse(incomingCardsRaw) as ImportedCardInput[];
@@ -121,7 +215,7 @@ export async function resolveImportedCardsAction(formData: FormData) {
     if (strategy === "replace" && duplicateCards.length > 0) {
       const uniqueExistingIds = [...new Set(duplicateCards.map((card) => card.existingCardId))];
       replacedCount = await deleteCardsByIds(deckId, uniqueExistingIds);
-      const replacedInserted = await createCards(
+      const replacedInsertedIds = await createCardsWithIds(
         duplicateCards.map((card) => ({
           deckId,
           front: card.imported.front,
@@ -131,7 +225,8 @@ export async function resolveImportedCardsAction(formData: FormData) {
           easeFactor: card.imported.easeFactor,
         }))
       );
-      addedCount += replacedInserted;
+      addedCount += replacedInsertedIds.length;
+      importedCardIds.push(...replacedInsertedIds);
     } else if (duplicateCards.length > 0) {
       let merged = 0;
       for (const duplicate of duplicateCards) {
@@ -148,7 +243,7 @@ export async function resolveImportedCardsAction(formData: FormData) {
       mergedCount = merged;
     }
 
-    const inserted = await createCards(
+    const insertedIds = await createCardsWithIds(
       incomingCards.map((card) => ({
         deckId,
         front: card.front,
@@ -158,7 +253,8 @@ export async function resolveImportedCardsAction(formData: FormData) {
         easeFactor: card.easeFactor,
       }))
     );
-    addedCount += inserted;
+    addedCount += insertedIds.length;
+    importedCardIds.push(...insertedIds);
 
     const reason =
       strategy === "replace"
@@ -170,9 +266,15 @@ export async function resolveImportedCardsAction(formData: FormData) {
     params.set("importAdded", String(addedCount));
     params.set("importMerged", String(mergedCount));
     params.set("importReplaced", String(replacedCount));
+    if (importedCardIds.length > 0) {
+      params.set("importCardIds", importedCardIds.slice(0, 24).join(","));
+    }
     revalidatePath(`/decks/${deckId}`);
     redirect(`/decks/${deckId}?${params.toString()}`);
   } catch (error) {
+    if (isNavigationSignal(error)) {
+      throw error;
+    }
     console.error(`Failed to import cards for deck ${deckId}`, error);
     revalidatePath(`/decks/${deckId}`);
     redirect(`/decks/${deckId}?importError=Import%20failed.%20Please%20check%20the%20file%20format.`);

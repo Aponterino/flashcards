@@ -1,5 +1,5 @@
 export type StudyDifficulty = "hard" | "medium" | "easy";
-export type StudyStartMode = "today" | "catchup" | "all" | "quiz";
+export type StudyStartMode = "today" | "catchup" | "all" | "challenge" | "quiz";
 
 export interface StudyCard {
   id: string;

@@ -7,6 +7,7 @@ import { getDeckStudyCalendar, markDeckStudyCardReviewed } from "@/lib/queries/s
 interface ReviewPayload {
   cardId?: unknown;
   difficulty?: unknown;
+  contextDeckId?: unknown;
 }
 
 function parseDifficulty(value: unknown): ReviewDifficulty | null {
@@ -28,6 +29,7 @@ export async function POST(request: Request) {
 
   const cardId = typeof payload.cardId === "string" ? payload.cardId.trim() : "";
   const difficulty = parseDifficulty(payload.difficulty);
+  const contextDeckId = typeof payload.contextDeckId === "string" ? payload.contextDeckId.trim() : "";
 
   if (!cardId || !difficulty) {
     return NextResponse.json({ error: "cardId and difficulty are required" }, { status: 400 });
@@ -40,13 +42,15 @@ export async function POST(request: Request) {
     }
 
     const dateIso = getLocalDateISO();
-    const day = await markDeckStudyCardReviewed(updated.deckId, difficulty, dateIso);
-    const calendar = await getDeckStudyCalendar(updated.deckId);
+    const studyDeckId = contextDeckId || updated.deckId;
+    const day = await markDeckStudyCardReviewed(studyDeckId, difficulty, dateIso);
+    const calendar = await getDeckStudyCalendar(studyDeckId);
 
     return NextResponse.json(
       {
         id: updated.id,
         deckId: updated.deckId,
+        studyDeckId,
         dueDate: updated.dueDate,
         intervalDays: updated.intervalDays,
         easeFactor: updated.easeFactor,

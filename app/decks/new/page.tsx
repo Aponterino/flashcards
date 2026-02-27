@@ -2,7 +2,13 @@ import Link from "next/link";
 
 import { createDeckAction } from "@/lib/actions";
 
-export default function NewDeckPage() {
+interface NewDeckPageProps {
+  searchParams: Promise<{ hierarchyError?: string }>;
+}
+
+export default async function NewDeckPage({ searchParams }: NewDeckPageProps) {
+  const { hierarchyError } = await searchParams;
+
   return (
     <section className="stack">
       <div>
@@ -10,6 +16,12 @@ export default function NewDeckPage() {
         <h1>Create a deck</h1>
         <p className="subtitle">Give your deck a name and start adding cards.</p>
       </div>
+
+      {hierarchyError ? (
+        <section className="card callout">
+          <p className="subtitle">{hierarchyError}</p>
+        </section>
+      ) : null}
 
       <form className="card stack" action={createDeckAction}>
         <label className="field">

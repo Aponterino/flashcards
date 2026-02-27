@@ -12,6 +12,8 @@ interface DecksPageProps {
 export default async function DecksPage({ searchParams }: DecksPageProps) {
   const { deleted } = await searchParams;
   const decks = await getDecks();
+  const deckIds = new Set(decks.map((deck) => deck.id));
+  const rootDecks = decks.filter((deck) => !deck.parentDeckId || !deckIds.has(deck.parentDeckId));
   return (
     <section className="stack">
       {deleted === "1" ? (
@@ -35,7 +37,7 @@ export default async function DecksPage({ searchParams }: DecksPageProps) {
           New deck
         </Link>
       </div>
-      <DeckList decks={decks} />
+      <DeckList decks={rootDecks} />
     </section>
   );
 }

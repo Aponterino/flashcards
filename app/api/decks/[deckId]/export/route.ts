@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { serializeDeckAsDelimited, serializeDeckAsJson, serializeDeckAsXml } from "@/lib/importExport";
-import { getCardsByDeck } from "@/lib/queries/cards";
+import { getCardsForStudyDeck } from "@/lib/queries/cards";
 import { getDeckById } from "@/lib/queries/decks";
 
 interface ExportRouteContext {
@@ -25,7 +25,7 @@ export async function GET(request: Request, context: ExportRouteContext) {
     return NextResponse.json({ error: "Deck not found" }, { status: 404 });
   }
 
-  const cards = await getCardsByDeck(deckId);
+  const cards = await getCardsForStudyDeck(deckId);
   const { searchParams } = new URL(request.url);
   const format = (searchParams.get("format") ?? "json").toLowerCase();
   const stem = toSafeFileStem(deck.name);

@@ -1,6 +1,6 @@
 import "./globals.css";
 
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import AppHeader from "@/components/AppHeader";
 import Sidebar from "@/components/Sidebar";
@@ -18,7 +18,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Skip to main content
         </a>
         <div className="app-shell">
-          <Sidebar />
+          <Suspense fallback={<aside aria-label="Sidebar" className="app-sidebar" />}>
+            <Sidebar />
+          </Suspense>
           <div className="app-content">
             <AppHeader />
             <main className="app-main" id="main-content" tabIndex={-1}>
