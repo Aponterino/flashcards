@@ -15,6 +15,7 @@ import {
   resetDeckLearningProgressAction,
   resolveImportedCardsAction,
   updateCardAction,
+  updateDeckNameAction,
 } from "@/lib/actions";
 import { getCardsByDeck, getCardsForStudyDeck, type CardRecord } from "@/lib/queries/cards";
 import { getDeckById, getDecks, getDirectChildDecks } from "@/lib/queries/decks";
@@ -26,6 +27,7 @@ interface DeckPageProps {
   params: Promise<{ deckId: string }>;
   searchParams: Promise<{
     edit?: string;
+    editDeck?: string;
     importAdded?: string;
     importMerged?: string;
     importReplaced?: string;
@@ -118,7 +120,8 @@ function summarizeSectionStats(sectionCards: CardRecord[], todayIso: string): Se
 
 export default async function DeckPage({ params, searchParams }: DeckPageProps) {
   const { deckId } = await params;
-  const { edit, importAdded, importMerged, importReplaced, importCardIds, importError, hierarchyError } = await searchParams;
+  const { edit, editDeck, importAdded, importMerged, importReplaced, importCardIds, importError, hierarchyError } =
+    await searchParams;
   const deck = await getDeckById(deckId);
   if (!deck) {
     notFound();
@@ -160,6 +163,7 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
   const showPlacementPanel = isSectionDeck || isMasterDeck;
   const isDeckEmpty = cards.length === 0;
   const editingCardId = edit ?? "";
+  const isEditingDeckName = editDeck === "1";
   const importAddedCount = Number(importAdded ?? "0");
   const importedIds = String(importCardIds ?? "")
     .split(",")
@@ -171,7 +175,66 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
       <div className="row deck-header-row">
         <div>
           <p className="eyebrow">Deck</p>
-          <h1>{deck.name}</h1>
+          {isEditingDeckName ? (
+            <form action={updateDeckNameAction} className="deck-name-edit-form">
+              <input type="hidden" name="deckId" value={deckId} />
+              <input type="hidden" name="redirectTo" value={`/decks/${deckId}`} />
+              <label className="visually-hidden" htmlFor={`deck-name-input-${deckId}`}>
+                Deck name
+              </label>
+              <h1 className="deck-name-inline-heading">
+                <input
+                  className="deck-name-inline-input"
+                  id={`deck-name-input-${deckId}`}
+                  name="name"
+                  defaultValue={deck.name}
+                  maxLength={255}
+                  required
+                />
+              </h1>
+              <div className="card-item-actions">
+                <button className="button primary" type="submit">
+                  Save
+                </button>
+                <Link className="button ghost" href={`/decks/${deckId}`}>
+                  Cancel
+                </Link>
+              </div>
+            </form>
+          ) : (
+            <div className="deck-name-editable">
+              <h1>{deck.name}</h1>
+              <Link
+                aria-label={`Edit deck name: ${deck.name}`}
+                className="button ghost card-edit-button card-hover-action"
+                href={`/decks/${deckId}?editDeck=1`}
+              >
+                <svg
+                  aria-hidden="true"
+                  className="card-edit-icon"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M4 20h4l10-10-4-4L4 16v4z"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M12 6l4 4"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                  />
+                </svg>
+                <span>Edit</span>
+              </Link>
+            </div>
+          )}
           <p className="subtitle">
             {isMasterDeck
               ? "Master deck view: study all section cards together and track aggregate progress."

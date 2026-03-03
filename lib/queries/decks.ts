@@ -228,6 +228,21 @@ export async function createDeckWithParent(name: string, parentDeckId: string | 
   return deck;
 }
 
+export async function updateDeckName(deckId: string, name: string): Promise<DeckRecord | null> {
+  await ensureDbReady();
+  const db = getDb();
+  const [deck] = await db
+    .update(decks)
+    .set({
+      name,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(decks.id, deckId), isNull(decks.deletedAt)))
+    .returning();
+
+  return deck ?? null;
+}
+
 export async function getDeckDescendantIds(deckId: string): Promise<string[]> {
   await ensureDbReady();
   const db = getDb();

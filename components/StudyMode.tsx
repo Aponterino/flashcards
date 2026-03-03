@@ -713,6 +713,22 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     setIsFlipped((previous) => !previous);
   }
 
+  function shuffleBrowseCards() {
+    if (sessionSource !== "browse" || activeCards.length < 2 || isRating) {
+      return;
+    }
+
+    setActiveCards((previous) => {
+      if (previous.length < 2) {
+        return previous;
+      }
+      return shuffleValues(previous);
+    });
+    setCurrentIndex(0);
+    setSlideDirection("next");
+    setIsFlipped(false);
+  }
+
   function endSession() {
     router.replace(`/decks/${deckId}?session=${Date.now()}`);
   }
@@ -930,6 +946,13 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
                     : "Study mode"}
               </p>
             </div>
+            {sessionSource === "browse" && activeCards.length > 1 ? (
+              <div className="study-toolbar-actions">
+                <button className="button ghost" disabled={isRating} onClick={shuffleBrowseCards} type="button">
+                  Shuffle
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {!isQuizSession ? (

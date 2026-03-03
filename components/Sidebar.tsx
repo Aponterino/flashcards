@@ -11,6 +11,7 @@ import {
   parseThemeId,
   resolveTheme,
 } from "@/lib/theme";
+import { isPointWithinDecksArea, resolveTopLevelDropAfter, TOP_LEVEL_DROP_BOTTOM_SLACK, type DeckAreaRect, type RootDeckRect } from "@/lib/sidebarDrag";
 
 interface SidebarDeck {
   id: string;
@@ -45,14 +46,21 @@ export default function Sidebar() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [draggingDeckId, setDraggingDeckId] = useState<string | null>(null);
   const [dropTargetDeckId, setDropTargetDeckId] = useState<string | null>(null);
+  const [topLevelDropAfterDeckId, setTopLevelDropAfterDeckId] = useState<string | null>(null);
+  const [topLevelDropActive, setTopLevelDropActive] = useState(false);
+  const [dragPreview, setDragPreview] = useState<{ label: string; x: number; y: number } | null>(null);
   const [moveDeckError, setMoveDeckError] = useState<string>("");
   const [isMovingDeck, setIsMovingDeck] = useState(false);
   const knownDeckIdsRef = useRef<Set<string>>(new Set());
   const draggingDeckIdRef = useRef<string | null>(null);
   const dropTargetDeckIdRef = useRef<string | null>(null);
+  const lastDeckPointerRef = useRef<{ x: number; y: number } | null>(null);
   const pendingNameDragRef = useRef<{ deckId: string; pointerId: number; startX: number; startY: number } | null>(null);
   const suppressDeckClickIdRef = useRef<string | null>(null);
   const suppressDeckClickTimeoutRef = useRef<number | null>(null);
+  const deckAreaRectRef = useRef<DeckAreaRect | null>(null);
+  const rootRectsRef = useRef<RootDeckRect[]>([]);
+  const deckRowRectsRef = useRef<Array<{ id: string; left: number; right: number; top: number; bottom: number; centerY: number }>>([]);
   const childDecksByParent = useMemo(() => {
     return decks.reduce<Map<string, SidebarDeck[]>>((map, deck) => {
       if (!deck.parentDeckId) {
@@ -70,6 +78,7 @@ export default function Sidebar() {
     const deckIds = new Set(decks.map((deck) => deck.id));
     return decks.filter((deck) => !deck.parentDeckId || !deckIds.has(deck.parentDeckId));
   }, [decks]);
+  const deckNameById = useMemo(() => new Map(decks.map((deck) => [deck.id, deck.name])), [decks]);
 
   const normalizeDeckPayload = useCallback(
     (
@@ -190,19 +199,32 @@ export default function Sidebar() {
   }, []);
 
   const startDeckDrag = useCallback(
-    (deckId: string) => {
+    (deckId: string, pointer?: { x: number; y: number }) => {
       setMoveDeckError("");
       setDraggingDeckId(deckId);
       draggingDeckIdRef.current = deckId;
+      lastDeckPointerRef.current = null;
+      setTopLevelDropActive(false);
+      setTopLevelDropAfterDeckId(null);
+      const deckLabel = deckNameById.get(deckId) ?? "Deck";
+      if (pointer) {
+        setDragPreview({ label: deckLabel, x: pointer.x, y: pointer.y });
+      } else {
+        setDragPreview((current) => (current ? { ...current, label: deckLabel } : { label: deckLabel, x: 0, y: 0 }));
+      }
       setActiveDropTarget(null);
     },
-    [setActiveDropTarget]
+    [deckNameById, setActiveDropTarget]
   );
 
   const endDeckDrag = useCallback(() => {
     setDraggingDeckId(null);
     draggingDeckIdRef.current = null;
+    lastDeckPointerRef.current = null;
     pendingNameDragRef.current = null;
+    setTopLevelDropActive(false);
+    setTopLevelDropAfterDeckId(null);
+    setDragPreview(null);
     setActiveDropTarget(null);
   }, [setActiveDropTarget]);
 
@@ -246,15 +268,6 @@ export default function Sidebar() {
     [endDeckDrag, fetchDecksFromApi, router]
   );
 
-  function handleDeckPointerDown(deckId: string, event: ReactPointerEvent<HTMLButtonElement>) {
-    if (isMovingDeck || event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-    startDeckDrag(deckId);
-  }
-
   function handleDeckNamePointerDown(deckId: string, event: ReactPointerEvent<HTMLAnchorElement>) {
     if (isMovingDeck || event.button !== 0) {
       return;
@@ -286,7 +299,7 @@ export default function Sidebar() {
     }
 
     event.preventDefault();
-    startDeckDrag(pending.deckId);
+    startDeckDrag(pending.deckId, { x: event.clientX, y: event.clientY });
     pendingNameDragRef.current = null;
   }
 
@@ -306,38 +319,155 @@ export default function Sidebar() {
       return;
     }
 
+    function cacheDeckDropGeometry() {
+      const decksArea = document.querySelector<HTMLElement>("[data-drop-decks-area='true']");
+      if (decksArea) {
+        const rect = decksArea.getBoundingClientRect();
+        deckAreaRectRef.current = {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+        };
+      } else {
+        deckAreaRectRef.current = null;
+      }
+
+      rootRectsRef.current = Array.from(document.querySelectorAll<HTMLElement>("[data-root-deck-id]"))
+        .map((row) => {
+          const id = row.dataset.rootDeckId?.trim() ?? "";
+          if (!id) {
+            return null;
+          }
+
+          const rect = row.getBoundingClientRect();
+          return {
+            id,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          };
+        })
+        .filter((item): item is RootDeckRect => item !== null)
+        .sort((left, right) => left.top - right.top);
+
+      deckRowRectsRef.current = Array.from(document.querySelectorAll<HTMLElement>("[data-drop-deck-id]"))
+        .map((row) => {
+          const id = row.dataset.dropDeckId?.trim() ?? "";
+          if (!id) {
+            return null;
+          }
+
+          const rect = row.getBoundingClientRect();
+          const centerY = rect.top + rect.height / 2;
+          return {
+            id,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            centerY,
+          };
+        })
+        .filter((item): item is { id: string; left: number; right: number; top: number; bottom: number; centerY: number } => item !== null);
+    }
+
+    function resolveTopLevelDropAfterAtPointer(clientX: number, clientY: number, sourceDeckId: string): string | null | undefined {
+      if (!canDropToTopLevel(sourceDeckId)) {
+        return undefined;
+      }
+
+      return resolveTopLevelDropAfter({
+        x: clientX,
+        y: clientY,
+        roots: rootRectsRef.current,
+        isPointWithinDecksArea: isPointWithinDecksArea(clientX, clientY, deckAreaRectRef.current, TOP_LEVEL_DROP_BOTTOM_SLACK),
+      });
+    }
+
     function resolveDropTarget(clientX: number, clientY: number): string | null {
       const sourceDeckId = draggingDeckIdRef.current;
       if (!sourceDeckId || isMovingDeck) {
         return null;
       }
 
-      const element = document.elementFromPoint(clientX, clientY);
-      if (!(element instanceof HTMLElement)) {
+      const candidates = document.elementsFromPoint(clientX, clientY).filter((item): item is HTMLElement => item instanceof HTMLElement);
+      if (candidates.length === 0) {
         return null;
       }
 
-      const topLevelTarget = element.closest<HTMLElement>("[data-drop-top-level='true']");
-      if (topLevelTarget && canDropToTopLevel(sourceDeckId)) {
-        return "__top-level__";
+      for (const element of candidates) {
+        const deckTarget = element.closest<HTMLElement>("[data-drop-deck-id]");
+        if (deckTarget) {
+          const targetDeckId = deckTarget.dataset.dropDeckId?.trim() ?? "";
+          if (targetDeckId && getDropIntent(sourceDeckId, targetDeckId)) {
+            return targetDeckId;
+          }
+        }
+
+        const deckMenu = element.closest<HTMLElement>("[data-drop-decks-menu='true']");
+        if (deckMenu && canDropToTopLevel(sourceDeckId)) {
+          return "__top-level__";
+        }
+
+        const deckArea = element.closest<HTMLElement>("[data-drop-decks-area='true']");
+        if (deckArea && canDropToTopLevel(sourceDeckId)) {
+          return "__top-level__";
+        }
       }
 
-      const deckTarget = element.closest<HTMLElement>("[data-drop-deck-id]");
-      if (!deckTarget) {
-        return null;
+      // Fallback: when hit-testing misses row content, snap to the nearest deck row.
+      let nearestDeckId: string | null = null;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const deckRow of deckRowRectsRef.current) {
+        const intent = getDropIntent(sourceDeckId, deckRow.id);
+        if (!intent) {
+          continue;
+        }
+
+        const verticalPadding = 12;
+        const horizontalPadding = 24;
+        const isNearRow =
+          clientY >= deckRow.top - verticalPadding &&
+          clientY <= deckRow.bottom + verticalPadding &&
+          clientX >= deckRow.left - horizontalPadding &&
+          clientX <= deckRow.right + horizontalPadding;
+        if (!isNearRow) {
+          continue;
+        }
+
+        const distance = Math.abs(clientY - deckRow.centerY);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestDeckId = deckRow.id;
+        }
       }
 
-      const targetDeckId = deckTarget.dataset.dropDeckId?.trim() ?? "";
-      if (!targetDeckId) {
-        return null;
+      if (nearestDeckId) {
+        return nearestDeckId;
       }
 
-      return getDropIntent(sourceDeckId, targetDeckId) ? targetDeckId : null;
+      return null;
     }
 
     function handlePointerMove(event: PointerEvent) {
+      lastDeckPointerRef.current = { x: event.clientX, y: event.clientY };
+      setDragPreview((current) => (current ? { ...current, x: event.clientX, y: event.clientY } : current));
+      const sourceDeckId = draggingDeckIdRef.current;
+      if (sourceDeckId) {
+        const nextAfterDeckId = resolveTopLevelDropAfterAtPointer(event.clientX, event.clientY, sourceDeckId);
+        if (nextAfterDeckId !== undefined) {
+          setTopLevelDropAfterDeckId(nextAfterDeckId);
+          setTopLevelDropActive(true);
+          setActiveDropTarget("__top-level__");
+          return;
+        }
+      }
       const nextTarget = resolveDropTarget(event.clientX, event.clientY);
       setActiveDropTarget(nextTarget);
+      setTopLevelDropActive(false);
+      setTopLevelDropAfterDeckId(null);
     }
 
     function handlePointerUp(event: PointerEvent) {
@@ -348,19 +478,25 @@ export default function Sidebar() {
       }
 
       suppressNextDeckClick(sourceDeckId);
-      const nextTarget = resolveDropTarget(event.clientX, event.clientY);
-      setActiveDropTarget(nextTarget);
+      const fallbackPoint = lastDeckPointerRef.current;
+      const pointerX = Number.isFinite(event.clientX) ? event.clientX : fallbackPoint?.x ?? 0;
+      const pointerY = Number.isFinite(event.clientY) ? event.clientY : fallbackPoint?.y ?? 0;
+      if (canDropToTopLevel(sourceDeckId)) {
+        const nextAfterDeckId = resolveTopLevelDropAfterAtPointer(pointerX, pointerY, sourceDeckId);
+        if (nextAfterDeckId !== undefined) {
+          void moveDeck(sourceDeckId, null, nextAfterDeckId);
+          return;
+        }
+      }
 
-      if (nextTarget === "__top-level__") {
-        if (canDropToTopLevel(sourceDeckId)) {
+      const nextTarget = resolveDropTarget(pointerX, pointerY);
+      setActiveDropTarget(nextTarget);
+      if (!nextTarget) {
+        if (canDropToTopLevel(sourceDeckId) && isPointWithinDecksArea(pointerX, pointerY, deckAreaRectRef.current, TOP_LEVEL_DROP_BOTTOM_SLACK)) {
           void moveDeck(sourceDeckId, null, null);
           return;
         }
-        endDeckDrag();
-        return;
-      }
 
-      if (!nextTarget) {
         endDeckDrag();
         return;
       }
@@ -384,11 +520,15 @@ export default function Sidebar() {
       }
     }
 
+    cacheDeckDropGeometry();
+
     document.body.classList.add("deck-drag-active");
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
     window.addEventListener("pointercancel", handlePointerCancel);
     window.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", cacheDeckDropGeometry);
+    window.addEventListener("scroll", cacheDeckDropGeometry, true);
 
     return () => {
       document.body.classList.remove("deck-drag-active");
@@ -396,8 +536,22 @@ export default function Sidebar() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerCancel);
       window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", cacheDeckDropGeometry);
+      window.removeEventListener("scroll", cacheDeckDropGeometry, true);
+      deckAreaRectRef.current = null;
+      rootRectsRef.current = [];
+      deckRowRectsRef.current = [];
     };
-  }, [canDropToTopLevel, draggingDeckId, endDeckDrag, getDropIntent, isMovingDeck, moveDeck, setActiveDropTarget, suppressNextDeckClick]);
+  }, [
+    canDropToTopLevel,
+    draggingDeckId,
+    endDeckDrag,
+    getDropIntent,
+    isMovingDeck,
+    moveDeck,
+    setActiveDropTarget,
+    suppressNextDeckClick,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -513,6 +667,38 @@ export default function Sidebar() {
     };
   }, [pathname, navRefreshKey, decksOpen, fetchDecksFromApi]);
 
+  function renderTopLevelInsertIndicator(key: string): JSX.Element {
+    return (
+      <div className="sidebar-deck-node-group sidebar-insert-indicator-group" key={key}>
+        <div aria-hidden className="sidebar-deck-insert-indicator" />
+      </div>
+    );
+  }
+
+  function renderRootDeckNodes(): JSX.Element[] {
+    const sourceDeckId = draggingDeckIdRef.current;
+    const showTopLevelInsert = Boolean(topLevelDropActive && sourceDeckId && canDropToTopLevel(sourceDeckId));
+    if (!showTopLevelInsert) {
+      return rootDecks.map((deck) => renderDeckNode(deck, 0));
+    }
+
+    const items: JSX.Element[] = [];
+    let indicatorInserted = false;
+    for (const deck of rootDecks) {
+      items.push(renderDeckNode(deck, 0));
+      if (topLevelDropAfterDeckId === deck.id) {
+        items.push(renderTopLevelInsertIndicator(`insert-after-${deck.id}`));
+        indicatorInserted = true;
+      }
+    }
+
+    if (!indicatorInserted) {
+      items.push(renderTopLevelInsertIndicator("insert-end"));
+    }
+
+    return items;
+  }
+
   function renderDeckNode(deck: SidebarDeck, depth: number): JSX.Element {
     const childDecks = childDecksByParent.get(deck.id) ?? [];
     const isDragging = draggingDeckId === deck.id;
@@ -523,22 +709,16 @@ export default function Sidebar() {
         <div
           className={`sidebar-deck-node ${isDragging ? "dragging" : ""} ${isDropTarget ? "drop-target" : ""}`}
           data-drop-deck-id={deck.id}
+          data-root-deck-id={depth === 0 ? deck.id : undefined}
         >
-          <button
-            aria-label={`Drag ${deck.name}`}
-            className="sidebar-deck-drag-handle"
-            disabled={isMovingDeck}
-            onPointerDown={(event) => handleDeckPointerDown(deck.id, event)}
-            tabIndex={-1}
-            title="Drag to move deck"
-            type="button"
-          >
-            ::
-          </button>
           <Link
             aria-current={isActive(pathname, `/decks/${deck.id}`) ? "page" : undefined}
             className={`sidebar-sublink ${isActive(pathname, `/decks/${deck.id}`) ? "active" : ""} ${newDeckIds.includes(deck.id) ? "new-item" : ""}`}
+            draggable={false}
             href={`/decks/${deck.id}`}
+            onDragStart={(event) => {
+              event.preventDefault();
+            }}
             onClick={(event) => {
               if (suppressDeckClickIdRef.current === deck.id) {
                 event.preventDefault();
@@ -614,7 +794,7 @@ export default function Sidebar() {
             >
               Home
             </Link>
-            <div className="sidebar-decks">
+            <div className="sidebar-decks" data-drop-decks-area="true">
               <div className={`sidebar-decks-header ${isActive(pathname, "/decks") ? "active" : ""}`}>
                 <Link
                   aria-current={isActive(pathname, "/decks") ? "page" : undefined}
@@ -637,7 +817,7 @@ export default function Sidebar() {
               </div>
 
               {decksOpen ? (
-                <div className="sidebar-decks-menu open" id={decksMenuId}>
+                <div className="sidebar-decks-menu open" data-drop-decks-menu="true" id={decksMenuId}>
                   <Link
                     aria-current={isActive(pathname, "/decks") ? "page" : undefined}
                     className={`sidebar-sublink ${isActive(pathname, "/decks") ? "active" : ""}`}
@@ -654,22 +834,11 @@ export default function Sidebar() {
                   >
                     + New Deck
                   </Link>
-                  {draggingDeckId ? (
-                    <button
-                      aria-hidden
-                      className={`sidebar-sublink sidebar-drop-top-level ${dropTargetDeckId === "__top-level__" ? "drop-target" : ""} ${canDropToTopLevel(draggingDeckId) ? "ready" : "disabled"}`}
-                      data-drop-top-level="true"
-                      tabIndex={-1}
-                      type="button"
-                    >
-                      Drag here to make top-level
-                    </button>
-                  ) : null}
                   {moveDeckError ? <p className="sidebar-sublink import-status-error">{moveDeckError}</p> : null}
                   {decks.length === 0 ? (
                     <p className="sidebar-sublink muted">No decks yet</p>
                   ) : (
-                    rootDecks.map((deck) => renderDeckNode(deck, 0))
+                    renderRootDeckNodes()
                   )}
                 </div>
               ) : null}
@@ -688,6 +857,15 @@ export default function Sidebar() {
           </Link>
         </div>
       </aside>
+      {dragPreview ? (
+        <div
+          aria-hidden
+          className="sidebar-deck-drag-preview"
+          style={{ left: `${dragPreview.x + 14}px`, top: `${dragPreview.y + 14}px` }}
+        >
+          {dragPreview.label}
+        </div>
+      ) : null}
     </>
   );
 }

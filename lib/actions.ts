@@ -5,7 +5,16 @@ import { redirect } from "next/navigation";
 
 import type { ImportedCardInput } from "@/lib/importExport";
 import { createCard, createCardsWithIds, deleteCardsByIds, resetDeckCardStudyState, swapCardFrontBackByDeck, swapCardFrontBackById, updateCard } from "@/lib/queries/cards";
-import { archiveDeck, createDeckWithParent, DeckHierarchyError, getDeckById, moveDeckToParent, purgeDeletedDecks, restoreDeck } from "@/lib/queries/decks";
+import {
+  archiveDeck,
+  createDeckWithParent,
+  DeckHierarchyError,
+  getDeckById,
+  moveDeckToParent,
+  purgeDeletedDecks,
+  restoreDeck,
+  updateDeckName,
+} from "@/lib/queries/decks";
 import { resetDeckStudyCalendar } from "@/lib/queries/studyCalendar";
 import { createDeckVersionSnapshot, restoreCardFromVersion, restoreDeckFromVersion } from "@/lib/queries/versions";
 
@@ -117,6 +126,35 @@ export async function archiveDeckAction(formData: FormData) {
   revalidatePath(`/decks/${deckId}`);
   revalidatePath("/decks/deleted");
   redirect("/decks?deleted=1");
+}
+
+export async function updateDeckNameAction(formData: FormData) {
+  const deckId = String(formData.get("deckId") || "").trim();
+  const redirectTo = String(formData.get("redirectTo") || "").trim();
+  const name = String(formData.get("name") || "").trim();
+
+  if (!deckId) {
+    return;
+  }
+
+  const updatedDeck = await updateDeckName(deckId, name || "Untitled Deck");
+  if (!updatedDeck) {
+    return;
+  }
+
+  await createDeckVersionSnapshot(deckId, `Deck renamed to "${updatedDeck.name}"`);
+  revalidatePath("/");
+  revalidatePath("/decks");
+  revalidatePath(`/decks/${deckId}`);
+  if (updatedDeck.parentDeckId) {
+    revalidatePath(`/decks/${updatedDeck.parentDeckId}`);
+  }
+
+  if (redirectTo.startsWith("/")) {
+    redirect(redirectTo);
+  }
+
+  redirect(`/decks/${deckId}`);
 }
 
 export async function updateCardAction(formData: FormData) {
