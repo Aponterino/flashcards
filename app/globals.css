@@ -2405,19 +2405,6 @@ body.deck-drag-active .sidebar-deck-node {
   position: relative;
 }
 
-.study-session-help-anchor {
-  align-self: center;
-}
-
-.study-session-help-tooltip {
-  width: min(280px, 72vw);
-}
-
-.study-session-help-inline {
-  width: min(760px, 100%);
-  margin-top: -8px;
-}
-
 .study-back-arrow {
   position: absolute;
   left: 0;
