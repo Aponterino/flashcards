@@ -1373,7 +1373,7 @@ body.deck-drag-active .sidebar-deck-node {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  width: min(100%, 320px);
+  width: 100%;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2341,8 +2341,8 @@ body.deck-drag-active .sidebar-deck-node {
 
 .study-recovery-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border);
