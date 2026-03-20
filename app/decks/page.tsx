@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-import DeckList from "@/components/DeckList";
-import { getDecks } from "@/lib/queries/decks";
+import DeckList from "@/components/decks/DeckList";
+import { getDecks } from "@/lib/decks/deckQueries";
 
 export const dynamic = "force-dynamic";
 

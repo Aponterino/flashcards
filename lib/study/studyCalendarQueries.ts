@@ -1,9 +1,9 @@
 import { and, asc, count, eq, inArray, lt, lte } from "drizzle-orm";
 
 import { cards, deckStudyDays, deckStudySettings } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
-import type { ReviewDifficulty } from "@/lib/queries/cards";
-import { getDeckScopeIds } from "@/lib/queries/decks";
+import { ensureDbReady, getDb } from "@/lib/core/db";
+import type { ReviewDifficulty } from "@/lib/cards/cardQueries";
+import { getDeckScopeIds } from "@/lib/decks/deckQueries";
 
 export const DEFAULT_DAILY_GOAL = 20;
 

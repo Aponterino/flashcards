@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq } from "drizzle-orm";
 
 import { cards, deckVersionCards, deckVersions } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
+import { ensureDbReady, getDb } from "@/lib/core/db";
 
 export interface DeckVersionSummary {
   id: string;

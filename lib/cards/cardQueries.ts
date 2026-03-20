@@ -1,8 +1,8 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import { cards } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
-import { getDeckScopeIds } from "@/lib/queries/decks";
+import { ensureDbReady, getDb } from "@/lib/core/db";
+import { getDeckScopeIds } from "@/lib/decks/deckQueries";
 
 export interface CardRecord {
   id: string;

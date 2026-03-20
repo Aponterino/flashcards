@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import type { ImportedCardInput } from "@/lib/importExport";
-import { createCard, createCardsWithIds, deleteCardsByIds, resetDeckCardStudyState, swapCardFrontBackByDeck, swapCardFrontBackById, updateCard } from "@/lib/queries/cards";
+import type { ImportedCardInput } from "@/lib/cards/cardImportExport";
+import { createCard, createCardsWithIds, deleteCardsByIds, resetDeckCardStudyState, swapCardFrontBackByDeck, swapCardFrontBackById, updateCard } from "@/lib/cards/cardQueries";
 import {
   archiveDeck,
   createDeckWithParent,
@@ -14,9 +14,9 @@ import {
   purgeDeletedDecks,
   restoreDeck,
   updateDeckName,
-} from "@/lib/queries/decks";
-import { resetDeckStudyCalendar } from "@/lib/queries/studyCalendar";
-import { createDeckVersionSnapshot, restoreCardFromVersion, restoreDeckFromVersion } from "@/lib/queries/versions";
+} from "@/lib/decks/deckQueries";
+import { resetDeckStudyCalendar } from "@/lib/study/studyCalendarQueries";
+import { createDeckVersionSnapshot, restoreCardFromVersion, restoreDeckFromVersion } from "@/lib/decks/deckVersionQueries";
 
 function appendSearchParam(path: string, key: string, value: string): string {
   const [pathWithSearch, hashFragment = ""] = path.split("#", 2);

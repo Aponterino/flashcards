@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { getLocalDateISO } from "@/lib/studyCalendar";
-import { reviewCard, type ReviewDifficulty } from "@/lib/queries/cards";
-import { getDeckStudyCalendar, markDeckStudyCardReviewed } from "@/lib/queries/studyCalendar";
+import { reviewCard, type ReviewDifficulty } from "@/lib/cards/cardQueries";
+import { getDeckStudyCalendar, markDeckStudyCardReviewed } from "@/lib/study/studyCalendarQueries";
+import { getLocalDateISO } from "@/lib/study/studyCalendarUtils";
 
 interface ReviewPayload {
   cardId?: unknown;
   difficulty?: unknown;
   contextDeckId?: unknown;
+  dateIso?: unknown;
 }
 
 function parseDifficulty(value: unknown): ReviewDifficulty | null {
@@ -16,6 +17,14 @@ function parseDifficulty(value: unknown): ReviewDifficulty | null {
   }
 
   return null;
+}
+
+function parseDateIso(value: unknown): string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return getLocalDateISO();
+  }
+
+  return value;
 }
 
 export async function POST(request: Request) {
@@ -30,6 +39,7 @@ export async function POST(request: Request) {
   const cardId = typeof payload.cardId === "string" ? payload.cardId.trim() : "";
   const difficulty = parseDifficulty(payload.difficulty);
   const contextDeckId = typeof payload.contextDeckId === "string" ? payload.contextDeckId.trim() : "";
+  const dateIso = parseDateIso(payload.dateIso);
 
   if (!cardId || !difficulty) {
     return NextResponse.json({ error: "cardId and difficulty are required" }, { status: 400 });
@@ -41,7 +51,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Card not found" }, { status: 404 });
     }
 
-    const dateIso = getLocalDateISO();
     const studyDeckId = contextDeckId || updated.deckId;
     const day = await markDeckStudyCardReviewed(studyDeckId, difficulty, dateIso);
     const calendar = await getDeckStudyCalendar(studyDeckId);

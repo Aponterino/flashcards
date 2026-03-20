@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { serializeDeckAsDelimited, serializeDeckAsJson, serializeDeckAsXml } from "@/lib/importExport";
-import { getCardsForStudyDeck } from "@/lib/queries/cards";
-import { getDeckById } from "@/lib/queries/decks";
+import { serializeDeckAsDelimited, serializeDeckAsJson, serializeDeckAsXml } from "@/lib/cards/cardImportExport";
+import { getCardsForStudyDeck } from "@/lib/cards/cardQueries";
+import { getDeckById } from "@/lib/decks/deckQueries";
 
 interface ExportRouteContext {
   params: Promise<{ deckId: string }>;

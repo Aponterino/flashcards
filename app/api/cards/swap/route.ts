@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { swapCardFrontBackById } from "@/lib/queries/cards";
-import { createDeckVersionSnapshot } from "@/lib/queries/versions";
+import { swapCardFrontBackById } from "@/lib/cards/cardQueries";
+import { createDeckVersionSnapshot } from "@/lib/decks/deckVersionQueries";
 
 interface SwapPayload {
   cardId?: unknown;

@@ -89,6 +89,35 @@ function getTodayWeights(studiedRatio: number): Record<"new" | StudyDifficulty, 
   };
 }
 
+function getGuaranteedNewCount(
+  studiedRatio: number,
+  maxCards: number,
+  unseenCount: number,
+  overdueCount: number
+): number {
+  if (maxCards <= 0 || unseenCount <= 0) {
+    return 0;
+  }
+
+  // Reserve more "must-show" new cards early in the deck, then taper that
+  // floor down as the learner builds history on more cards.
+  const progressFloorRatio = Math.max(0.05, 0.35 * (1 - clampRatio(studiedRatio)));
+  let guaranteed = Math.round(maxCards * progressFloorRatio);
+
+  // As long as unseen cards exist, daily study should keep making forward
+  // progress through the deck instead of allowing review load to starve them.
+  guaranteed = Math.max(1, guaranteed);
+
+  // If the user has built up a heavy overdue queue, soften the guarantee so
+  // review can take back more of the session while still keeping new-card
+  // starvation impossible.
+  if (overdueCount >= maxCards * 2) {
+    guaranteed = Math.max(1, Math.floor(guaranteed / 2));
+  }
+
+  return Math.min(guaranteed, unseenCount, maxCards);
+}
+
 export function buildStudyGroupsFromCards(cards: StudyCard[]): StudyGroups {
   return cards.reduce<StudyGroups>(
     (groups, card) => {
@@ -117,32 +146,49 @@ export function buildTodayStudySet(cards: StudyCard[], groups: StudyGroups, maxC
 
   const todayIso = getTodayLocalDateISO();
   const cappedCount = Math.min(maxCards, cards.length);
-  const dueCards = cards.filter((card) => card.dueDate <= todayIso).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-  if (dueCards.length >= cappedCount) {
-    return dueCards.slice(0, cappedCount);
-  }
-
   const cardMap = new Map(cards.map((card) => [card.id, card]));
   const hardIds = groups.hard.filter((id) => cardMap.has(id));
   const mediumIds = groups.medium.filter((id) => cardMap.has(id) && !hardIds.includes(id));
   const easyIds = groups.easy.filter((id) => cardMap.has(id) && !hardIds.includes(id) && !mediumIds.includes(id));
   const categorizedIds = new Set([...hardIds, ...mediumIds, ...easyIds]);
+  const unseenPoolAll = cards.filter((card) => !categorizedIds.has(card.id));
 
   const hardPoolAll = hardIds.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
   const mediumPoolAll = mediumIds.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
   const easyPoolAll = easyIds.map((id) => cardMap.get(id)).filter((card): card is StudyCard => Boolean(card));
-  const newPoolAll = cards.filter((card) => !categorizedIds.has(card.id));
-
-  const dueCardIds = new Set(dueCards.map((card) => card.id));
-  const hardPool = hardPoolAll.filter((card) => !dueCardIds.has(card.id));
-  const mediumPool = mediumPoolAll.filter((card) => !dueCardIds.has(card.id));
-  const easyPool = easyPoolAll.filter((card) => !dueCardIds.has(card.id));
-  const newPool = newPoolAll.filter((card) => !dueCardIds.has(card.id));
 
   const totalCount = cards.length;
   const studiedCount = categorizedIds.size;
   const studiedRatio = clampRatio(studiedCount / totalCount);
-  const remainingCapacity = cappedCount - dueCards.length;
+  const overdueCount = cards.filter((card) => card.dueDate < todayIso).length;
+
+  // Pick a guaranteed floor of unseen cards before due-card selection so a
+  // persistent review backlog cannot block deck completion forever.
+  const guaranteedNewCount = getGuaranteedNewCount(studiedRatio, cappedCount, unseenPoolAll.length, overdueCount);
+  const guaranteedNewCards = takeFirst(unseenPoolAll, guaranteedNewCount);
+  const chosenIds = new Set<string>(guaranteedNewCards.map((card) => card.id));
+
+  // After reserving the guaranteed unseen cards, fill as much of the session
+  // as possible with due cards. This keeps review priority intact without
+  // fully starving forward progress.
+  const dueCards = cards
+    .filter((card) => card.dueDate <= todayIso && !chosenIds.has(card.id))
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const dueChosen = dueCards.slice(0, Math.max(0, cappedCount - chosenIds.size));
+
+  for (const card of dueChosen) {
+    chosenIds.add(card.id);
+  }
+
+  const dueCardIds = new Set(
+    [...guaranteedNewCards, ...dueChosen].filter((card) => card.dueDate <= todayIso).map((card) => card.id)
+  );
+  const hardPool = hardPoolAll.filter((card) => !dueCardIds.has(card.id) && !chosenIds.has(card.id));
+  const mediumPool = mediumPoolAll.filter((card) => !dueCardIds.has(card.id) && !chosenIds.has(card.id));
+  const easyPool = easyPoolAll.filter((card) => !dueCardIds.has(card.id) && !chosenIds.has(card.id));
+  const newPool = unseenPoolAll.filter((card) => !dueCardIds.has(card.id) && !chosenIds.has(card.id));
+
+  const remainingCapacity = cappedCount - chosenIds.size;
   const weights = getTodayWeights(studiedRatio);
   const target = distributeByWeight(remainingCapacity, weights);
   const selected = {
@@ -166,13 +212,18 @@ export function buildTodayStudySet(cards: StudyCard[], groups: StudyGroups, maxC
     selected.hard = takeFirst(hardPool, 1);
   }
 
-  const chosenIds = new Set<string>([
-    ...dueCards.map((card) => card.id),
-    ...selected.new.map((card) => card.id),
-    ...selected.hard.map((card) => card.id),
-    ...selected.medium.map((card) => card.id),
-    ...selected.easy.map((card) => card.id),
-  ]);
+  for (const card of selected.new) {
+    chosenIds.add(card.id);
+  }
+  for (const card of selected.hard) {
+    chosenIds.add(card.id);
+  }
+  for (const card of selected.medium) {
+    chosenIds.add(card.id);
+  }
+  for (const card of selected.easy) {
+    chosenIds.add(card.id);
+  }
   const orderedPools = [hardPool, mediumPool, easyPool, newPool];
 
   for (const pool of orderedPools) {
@@ -192,9 +243,13 @@ export function buildTodayStudySet(cards: StudyCard[], groups: StudyGroups, maxC
     }
   }
 
-  const dueChosen = dueCards.filter((card) => chosenIds.has(card.id));
-  const nonDueChosen = cards.filter((card) => card.dueDate > todayIso && chosenIds.has(card.id));
-  return [...dueChosen, ...nonDueChosen].slice(0, cappedCount);
+  // Keep the final output user-friendly: due/overdue cards first, then the
+  // remaining future cards. Within those buckets we preserve the deck's
+  // existing order from the incoming card list.
+  const orderedChosen = cards.filter((card) => chosenIds.has(card.id));
+  const dueOrdered = orderedChosen.filter((card) => card.dueDate <= todayIso);
+  const futureOrdered = orderedChosen.filter((card) => card.dueDate > todayIso);
+  return [...dueOrdered, ...futureOrdered].slice(0, cappedCount);
 }
 
 export function buildCatchupStudySet(cards: StudyCard[], maxCards = 15): StudyCard[] {

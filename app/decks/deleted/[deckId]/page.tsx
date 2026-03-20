@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import { restoreDeletedDeckAction } from "@/lib/actions";
-import { getCardsByDeck } from "@/lib/queries/cards";
-import { getDeletedDeckById } from "@/lib/queries/decks";
+import { getCardsByDeck } from "@/lib/cards/cardQueries";
+import { getDeletedDeckById } from "@/lib/decks/deckQueries";
+import { restoreDeletedDeckAction } from "@/lib/decks/deckServerActions";
 
 export const dynamic = "force-dynamic";
 

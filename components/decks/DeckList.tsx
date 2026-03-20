@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import type { DeckSummary } from "@/lib/queries/decks";
+import type { DeckSummary } from "@/lib/decks/deckQueries";
 
 interface DeckListProps {
   decks: DeckSummary[];

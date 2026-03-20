@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 
 import { userPreferences } from "@/db/schema";
-import { DEFAULT_THEME, parseThemeId, type ThemeId, resolveTheme } from "@/lib/theme";
-import { ensureDbReady, getDb } from "@/lib/db";
+import { DEFAULT_THEME, parseThemeId, type ThemeId, resolveTheme } from "@/lib/preferences/appTheme";
+import { ensureDbReady, getDb } from "@/lib/core/db";
 
 function normalizeTheme(themeValue: string): ThemeId {
   const parsed = parseThemeId(themeValue);

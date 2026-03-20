@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   DEFAULT_DAILY_GOAL,
@@ -18,12 +18,21 @@ import {
   type StudyCalendarState,
   type StudyDayEntry,
   type StudyDayStatus,
-} from "@/lib/studyCalendar";
-import { buildStudyGroupsFromCards, type StudyCard, type StudyDifficulty } from "@/lib/studySession";
+} from "@/lib/study/studyCalendarUtils";
+import { buildStudyGroupsFromCards, type StudyCard, type StudyDifficulty } from "@/lib/study/studySessionUtils";
 
 interface StudySessionProps {
   deckId: string;
   cards: StudyCard[];
+}
+
+interface StudyModeHeadingProps {
+  activeModeId: string | null;
+  detail: string;
+  meta: string;
+  modeId: string;
+  onToggle: (modeId: string) => void;
+  title: string;
 }
 
 interface CalendarDay {
@@ -101,6 +110,42 @@ function getTrackMeta(type: StudyDifficulty): { title: string; subtitle: string;
   }
 
   return { title: "Foundation Track", subtitle: "Lock in basics", icon: "■" };
+}
+
+function StudyModeHeading({ activeModeId, detail, meta, modeId, onToggle, title }: StudyModeHeadingProps) {
+  const detailId = `${modeId}-detail`;
+  const isOpen = activeModeId === modeId;
+
+  return (
+    <div className="study-action-text">
+      <div className="study-action-title-row">
+        <div className="study-action-title-copy">
+          <p className="study-action-title">{title}</p>
+          <p className="study-action-meta">{meta}</p>
+        </div>
+        <span className="study-help-anchor" data-open={isOpen ? "true" : "false"}>
+          <button
+            aria-controls={detailId}
+            aria-expanded={isOpen}
+            aria-label={`More information about ${title}`}
+            className="study-help-trigger"
+            onClick={() => onToggle(modeId)}
+            type="button"
+          >
+            ?
+          </button>
+          <span className="study-help-tooltip" role="tooltip">
+            {detail}
+          </span>
+        </span>
+      </div>
+      {isOpen ? (
+        <div className="study-help-inline" id={detailId}>
+          {detail}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function buildCalendarDays(monthDate: Date): CalendarDay[] {
@@ -238,14 +283,36 @@ function getWeaknessLabel(value: "hard" | "medium" | "easy" | null): string {
   return "No signal";
 }
 
+function getActiveGoalDay(calendarState: StudyCalendarState, todayIso: string): { dateIso: string; entry: StudyDayEntry | undefined } {
+  const todayEntry = calendarState.days[todayIso];
+  if (todayEntry) {
+    return { dateIso: todayIso, entry: todayEntry };
+  }
+
+  const mostRecentDay = Object.entries(calendarState.days)
+    .sort((left, right) => right[1].updatedAt.localeCompare(left[1].updatedAt))
+    .find(([, entry]) => getReviewedCount(entry) > 0);
+
+  if (!mostRecentDay) {
+    return { dateIso: todayIso, entry: undefined };
+  }
+
+  return {
+    dateIso: mostRecentDay[0],
+    entry: mostRecentDay[1],
+  };
+}
+
 function isGoalEditorHashActive(): boolean {
   return typeof window !== "undefined" && window.location.hash === "#daily-goal-settings";
 }
 
 export default function StudySession({ deckId, cards }: StudySessionProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const groups = useMemo(() => buildStudyGroupsFromCards(cards), [cards]);
   const cardMap = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards]);
+  const handledSessionRefreshRef = useRef<string | null>(null);
 
   const [calendarState, setCalendarState] = useState<StudyCalendarState>({
     dailyGoal: DEFAULT_DAILY_GOAL,
@@ -260,36 +327,75 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
   const [calendarView, setCalendarView] = useState<CalendarView>("week");
   const [selectedDateIso, setSelectedDateIso] = useState<string | null>(null);
   const [goalEditorOpen, setGoalEditorOpen] = useState(false);
+  const [activeModeHelpId, setActiveModeHelpId] = useState<string | null>(null);
 
   const todayIso = getLocalDateISO();
 
-  useEffect(() => {
-    let canceled = false;
-
-    async function loadCalendar() {
+  const loadCalendar = useCallback(
+    async (signal?: AbortSignal) => {
       try {
-        const response = await fetch(`/api/decks/${deckId}/study-calendar`, { method: "GET" });
+        const response = await fetch(`/api/decks/${deckId}/study-calendar`, { method: "GET", signal });
         if (!response.ok) {
           return;
         }
 
         const payload = parseCalendarPayload(await response.json());
-        if (!canceled) {
-          setCalendarState(payload);
-          setGoalInput(String(payload.goalConfigured ? payload.dailyGoal : GOAL_RECOMMENDATION));
-          setGoalEditorOpen(!payload.goalConfigured || isGoalEditorHashActive());
+        setCalendarState(payload);
+        setGoalInput(String(payload.goalConfigured ? payload.dailyGoal : GOAL_RECOMMENDATION));
+        setGoalEditorOpen((previous) => previous || !payload.goalConfigured || isGoalEditorHashActive());
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return;
         }
-      } catch {
         // Keep defaults when loading fails.
       }
+    },
+    [deckId]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadCalendar(controller.signal);
+    return () => controller.abort();
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    const sessionToken = searchParams.get("session");
+    if (!sessionToken || handledSessionRefreshRef.current === sessionToken) {
+      return;
     }
 
+    handledSessionRefreshRef.current = sessionToken;
+    router.refresh();
     void loadCalendar();
+  }, [loadCalendar, router, searchParams]);
+
+  useEffect(() => {
+    const refreshDashboard = () => {
+      router.refresh();
+      void loadCalendar();
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        refreshDashboard();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshDashboard();
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      canceled = true;
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [deckId]);
+  }, [loadCalendar, router]);
 
   const hardCards = getCardsByIds(groups.hard, cardMap);
   const mediumCards = getCardsByIds(groups.medium, cardMap);
@@ -315,16 +421,20 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
   const quizSessionHelpId = useMemo(() => `study-quiz-help-${safeDeckId}`, [safeDeckId]);
   const multipleChoiceHelpId = useMemo(() => `study-mcq-help-${safeDeckId}`, [safeDeckId]);
 
-  const todayEntry = calendarState.days[todayIso];
+  const activeGoalDay = useMemo(() => getActiveGoalDay(calendarState, todayIso), [calendarState, todayIso]);
+  const todayEntry = activeGoalDay.entry;
   const todayGoal = todayEntry?.goal ?? calendarState.dailyGoal;
   const todayReviewedCount = getReviewedCount(todayEntry);
   const todayProgress = getDayProgress(todayEntry ?? { goal: todayGoal, reviewedCount: 0, updatedAt: "" });
-  const todayStatus = getDayStatus(todayIso, todayEntry, todayIso);
+  const todayStatus = getDayStatus(activeGoalDay.dateIso, todayEntry, todayIso);
   const todayAccuracy = getDayAccuracy(todayEntry);
   const todayMinimum = getMinimumViableTarget(todayGoal);
   const goalCandidate = Number.parseInt(goalInput, 10);
   const projectedGoal = Number.isFinite(goalCandidate) && goalCandidate > 0 ? goalCandidate : GOAL_RECOMMENDATION;
-  const projectedDaysToFinish = remainingCount > 0 ? Math.ceil(remainingCount / projectedGoal) : 0;
+  const clearedCount = useMemo(() => cards.filter((card) => card.dueDate > todayIso).length, [cards, todayIso]);
+  const dueQueueCount = Math.max(totalCards - clearedCount, 0);
+  const dueQueueProgressPercent = totalCards > 0 ? Math.round((clearedCount / totalCards) * 100) : 0;
+  const projectedDaysToFinish = dueQueueCount > 0 ? Math.ceil(dueQueueCount / projectedGoal) : 0;
   const projectedCompletionDateIso = dateOffsetIso(todayIso, Math.max(projectedDaysToFinish - 1, 0));
   const projectedCompletionWeekday = new Date(
     projectedCompletionDateIso.split("-").map(Number)[0],
@@ -332,7 +442,7 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
     projectedCompletionDateIso.split("-").map(Number)[2]
   ).toLocaleDateString(undefined, { weekday: "long" });
   const completionLabel =
-    remainingCount === 0 ? "Done" : `${projectedCompletionWeekday}, ${formatShortDate(projectedCompletionDateIso)}`;
+    dueQueueCount === 0 ? "Done" : `${projectedCompletionWeekday}, ${formatShortDate(projectedCompletionDateIso)}`;
 
   const dueCountByDate = useMemo(() => {
     const map = new Map<string, number>();
@@ -357,10 +467,6 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
     return Math.max(1, Math.min(Math.max(baseline, 12), 40));
   }, [isNewDeck, todayGoal, totalCards, todayQueueCount]);
   const nextSessionMinutes = Math.max(5, Math.round(nextSessionCards * 0.75));
-  const hardRatio = studiedCount > 0 ? hardCards.length / studiedCount : 0;
-  const riskLevel: "high" | "medium" | "low" =
-    overdueCount >= 5 || hardRatio >= 0.4 ? "high" : overdueCount > 0 || hardRatio >= 0.2 ? "medium" : "low";
-  const riskLabel = riskLevel === "high" ? "High" : riskLevel === "medium" ? "Medium" : "Low";
   const paceOnTrack = todayStatus === "complete" || todayReviewedCount >= todayMinimum;
   const paceLabel = paceOnTrack ? "On track" : "Behind";
   const paceToneClass = paceOnTrack ? "pace-on-track" : "pace-behind";
@@ -467,34 +573,16 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
 
     return streak;
   }, [calendarState.days, todayIso]);
-
-  const forecastRiskLevel = useMemo(() => {
-    const nextWeekDue = forecastDays.reduce((sum, day) => sum + day.due, 0);
-    const capacity = calendarState.dailyGoal * 7;
-
-    if (capacity === 0) {
-      return "high";
-    }
-
-    const ratio = nextWeekDue / capacity;
-    if (ratio >= 1.15) {
-      return "high";
-    }
-
-    if (ratio >= 0.85) {
-      return "medium";
-    }
-
-    return "low";
-  }, [forecastDays, calendarState.dailyGoal]);
-  const forecastRiskLabel =
-    forecastRiskLevel === "high" ? "High" : forecastRiskLevel === "medium" ? "Medium" : "Low";
   const goalActionVerb = calendarState.goalConfigured ? "Change" : "Set";
   const showNewDeckWelcome = isNewDeck && !calendarState.goalConfigured;
   const [animateDashboard, setAnimateDashboard] = useState(false);
   const [showMetricDetails, setShowMetricDetails] = useState(false);
 
   const selectedEntry = selectedDateIso ? calendarState.days[selectedDateIso] : undefined;
+
+  function toggleModeHelp(modeId: string) {
+    setActiveModeHelpId((previous) => (previous === modeId ? null : modeId));
+  }
 
   function jumpToAddCardsSection() {
     const addCardsSection = document.getElementById("add-cards-section");
@@ -696,7 +784,7 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
       {!isNewDeck ? (
         <section className="study-today-strip" aria-label="Today at a glance">
           <article className="study-today-item">
-            <p className="study-today-label">Goal progress</p>
+            <p className="study-today-label">Daily goal</p>
             <p className="study-today-value">
               {todayReviewedCount}/{todayGoal}
             </p>
@@ -727,16 +815,20 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ▶
                   </span>
-                  <div>
-                    <p className="study-action-title">First Session</p>
-                    <p className="study-action-meta">~8-12 minutes</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Starts with cards that are already due and then uses the remaining space to introduce unseen cards, so your first sessions build momentum without ignoring scheduling."
+                    meta="~8-12 minutes"
+                    modeId="first-session"
+                    onToggle={toggleModeHelp}
+                    title="First Session"
+                  />
                 </div>
                 <p className="study-action-help" id={firstSessionHelpId}>
-                  A balanced starter mix of due and new cards.
+                  Starts with overdue and due-today cards, then mixes in new cards if there is room.
                 </p>
                 <Link className="button primary" href={`/decks/${deckId}/study?mode=today`} aria-describedby={firstSessionHelpId}>
-                  Start daily session
+                  Study due today
                 </Link>
               </div>
               <div className="study-action-item">
@@ -744,10 +836,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ≡
                   </span>
-                  <div>
-                    <p className="study-action-title">Custom Study</p>
-                    <p className="study-action-meta">Flexible duration</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Lets you pick the session size yourself instead of following the daily goal. It is the best option when you want a short check-in or a longer catch-up session."
+                    meta="Flexible duration"
+                    modeId="custom-study"
+                    onToggle={toggleModeHelp}
+                    title="Custom Study"
+                  />
                 </div>
                 <p className="study-action-help" id={customSessionHelpId}>
                   Study the full deck or choose your own session size.
@@ -761,10 +857,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ∞
                   </span>
-                  <div>
-                    <p className="study-action-title">Browse Flashcards</p>
-                    <p className="study-action-meta">Entire deck</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Opens the deck in a free-browse mode without grading cards. You can review content at your own pace without changing due dates or difficulty history."
+                    meta="Entire deck"
+                    modeId="browse-flashcards"
+                    onToggle={toggleModeHelp}
+                    title="Browse Flashcards"
+                  />
                 </div>
                 <p className="study-action-help" id={allSessionHelpId}>
                   Browse every card with arrow-key navigation and no grading.
@@ -778,10 +878,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ★
                   </span>
-                  <div>
-                    <p className="study-action-title">Progressive Challenge</p>
-                    <p className="study-action-meta">Adaptive challenge</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Builds an adaptive practice set from your previous ratings rather than from due dates. As you make progress through the deck, it leans harder toward cards you have found more difficult."
+                    meta="Adaptive challenge"
+                    modeId="progressive-challenge"
+                    onToggle={toggleModeHelp}
+                    title="Progressive Challenge"
+                  />
                 </div>
                 <p className="study-action-help" id={quizSessionHelpId}>
                   Adaptive card grading with a progressively harder mix.
@@ -794,23 +898,27 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
           </>
         ) : (
           <>
-            <p className="study-actions-copy">Choose a focused daily set or open a flexible custom session.</p>
+            <p className="study-actions-copy">Start with overdue and due-today cards, then open a custom session if you want something different.</p>
             <div className="study-actions-list">
               <div className="study-action-item">
                 <div className="study-action-head">
                   <span className="study-action-icon" aria-hidden="true">
                     ✓
                   </span>
-                  <div>
-                    <p className="study-action-title">Study Due Today</p>
-                    <p className="study-action-meta">~8-12 minutes</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Prioritizes overdue and due-today cards first, then uses any remaining room to keep introducing unseen cards. That keeps the daily workload moving without letting new cards disappear forever."
+                    meta="~8-12 minutes"
+                    modeId="study-due-today"
+                    onToggle={toggleModeHelp}
+                    title="Study Due Today"
+                  />
                 </div>
                 <p className="study-action-help" id={dueSessionHelpId}>
-                  Due cards first, with targeted review mixed in.
+                  This session prioritizes overdue and due-today cards before bringing in new cards.
                 </p>
                 <Link className="button primary" href={`/decks/${deckId}/study?mode=today`} aria-describedby={dueSessionHelpId}>
-                  Start daily session
+                  Study due today
                 </Link>
               </div>
               <div className="study-action-item">
@@ -818,10 +926,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ≡
                   </span>
-                  <div>
-                    <p className="study-action-title">Custom Study</p>
-                    <p className="study-action-meta">Flexible duration</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Lets you pick the session size yourself instead of following the daily goal. It is the best option when you want a short check-in or a longer catch-up session."
+                    meta="Flexible duration"
+                    modeId="custom-study"
+                    onToggle={toggleModeHelp}
+                    title="Custom Study"
+                  />
                 </div>
                 <p className="study-action-help" id={customSessionHelpId}>
                   Study the full deck or choose your own session size.
@@ -835,10 +947,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ∞
                   </span>
-                  <div>
-                    <p className="study-action-title">Browse Flashcards</p>
-                    <p className="study-action-meta">Entire deck</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Opens the deck in a free-browse mode without grading cards. You can review content at your own pace without changing due dates or difficulty history."
+                    meta="Entire deck"
+                    modeId="browse-flashcards"
+                    onToggle={toggleModeHelp}
+                    title="Browse Flashcards"
+                  />
                 </div>
                 <p className="study-action-help" id={allSessionHelpId}>
                   Browse every card with arrow-key navigation and no grading.
@@ -852,10 +968,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
                   <span className="study-action-icon" aria-hidden="true">
                     ★
                   </span>
-                  <div>
-                    <p className="study-action-title">Progressive Challenge</p>
-                    <p className="study-action-meta">Adaptive challenge</p>
-                  </div>
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Builds an adaptive practice set from your previous ratings rather than from due dates. As you make progress through the deck, it leans harder toward cards you have found more difficult."
+                    meta="Adaptive challenge"
+                    modeId="progressive-challenge"
+                    onToggle={toggleModeHelp}
+                    title="Progressive Challenge"
+                  />
                 </div>
                 <p className="study-action-help" id={quizSessionHelpId}>
                   Adaptive card grading with a progressively harder mix.
@@ -868,9 +988,19 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
             {overdueCount > 0 ? (
               <div className="study-recovery-row">
                 <p className="muted">Recovery plan: clear overdue cards first.</p>
-                <Link className="button ghost" href={`/decks/${deckId}/study?mode=catchup`}>
-                  Catch up overdue ({Math.min(overdueCount, 15)})
-                </Link>
+                <div className="study-recovery-action">
+                  <StudyModeHeading
+                    activeModeId={activeModeHelpId}
+                    detail="Builds a shorter recovery session that focuses only on overdue cards. Use it when you want to shrink backlog before returning to the normal daily mix."
+                    meta={`${Math.min(overdueCount, 15)} card focus`}
+                    modeId="catch-up-overdue"
+                    onToggle={toggleModeHelp}
+                    title="Catch Up Overdue"
+                  />
+                  <Link className="button ghost" href={`/decks/${deckId}/study?mode=catchup`}>
+                    Catch up overdue ({Math.min(overdueCount, 15)})
+                  </Link>
+                </div>
               </div>
             ) : null}
           </>
@@ -886,10 +1016,14 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
             <span className="study-action-icon" aria-hidden="true">
               ?
             </span>
-            <div>
-              <p className="study-action-title">Multiple-Choice Quiz</p>
-              <p className="study-action-meta">Front prompt + 4 options</p>
-            </div>
+            <StudyModeHeading
+              activeModeId={activeModeHelpId}
+              detail="Shows one prompt with four answer choices built from other cards in the deck. Missed cards come back in a retry round so you can reinforce weak spots immediately."
+              meta="Front prompt + 4 options"
+              modeId="multiple-choice-quiz"
+              onToggle={toggleModeHelp}
+              title="Multiple-Choice Quiz"
+            />
           </div>
           <p className="study-action-help" id={multipleChoiceHelpId}>
             One correct answer and three distractors from other cards.
@@ -998,7 +1132,6 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
             <h4 className="study-focus-title">Study focus</h4>
             <p className="study-focus-next">{nextFocusAction}</p>
             <div className="study-focus-chip-row">
-              <span className={`chip risk-${riskLevel}`}>Risk: {riskLabel}</span>
               <span className={`chip ${paceToneClass}`}>Pace: {paceLabel}</span>
               <span className="chip study-focus-eta">ETA: {completionLabel}</span>
             </div>
@@ -1048,23 +1181,85 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
               {todayReviewedCount} / {todayGoal}
             </p>
             <p className="study-goal-status">{statusLabel(todayStatus)}</p>
+            {activeGoalDay.dateIso !== todayIso ? (
+              <p className="study-goal-estimate">Showing latest recorded session from {formatShortDate(activeGoalDay.dateIso)}.</p>
+            ) : null}
+            <div className="study-goal-deck-progress" aria-label="Overall deck progress">
+              <div className="study-goal-deck-progress-head">
+                <span>Unique cards studied</span>
+                <strong>{studiedCount} / {totalCards} cards</strong>
+              </div>
+              <p className="study-goal-deck-progress-copy">
+                {progressPercent}% of this deck has been studied at least once.
+              </p>
+              <div className="study-goal-deck-progress-bar" aria-hidden="true">
+                <span style={{ width: `${progressPercent}%` }} />
+              </div>
+              <div className="study-goal-deck-progress-metrics">
+                <p>
+                  <span>Studied</span>
+                  <strong>{studiedCount}</strong>
+                </p>
+                <p>
+                  <span>Total</span>
+                  <strong>{totalCards}</strong>
+                </p>
+                <p>
+                  <span>Not yet studied</span>
+                  <strong>{remainingCount}</strong>
+                </p>
+              </div>
+            </div>
+            <div className="study-goal-deck-progress study-goal-deck-progress-schedule" aria-label="Current due queue">
+              <div className="study-goal-deck-progress-head">
+                <span className="study-goal-deck-progress-eyebrow">Schedule</span>
+                <strong>{dueQueueCount} cards</strong>
+              </div>
+              <p className="study-goal-deck-progress-copy">
+                {clearedCount} of {totalCards} cards are currently scheduled later.
+              </p>
+              <div className="study-goal-deck-progress-bar" aria-hidden="true">
+                <span style={{ width: `${dueQueueProgressPercent}%` }} />
+              </div>
+              <div className="study-goal-deck-progress-metrics">
+                <p>
+                  <span>Due now</span>
+                  <strong>{dueQueueCount}</strong>
+                </p>
+                <p>
+                  <span>Scheduled later</span>
+                  <strong>{clearedCount}</strong>
+                </p>
+                <p>
+                  <span>Total</span>
+                  <strong>{totalCards}</strong>
+                </p>
+              </div>
+            </div>
             <p className="study-quality-copy">
               Accuracy {Math.round(todayAccuracy * 100)}% (target {Math.round(QUALITY_THRESHOLD * 100)}%)
             </p>
             <p className="study-quality-copy">Momentum floor: {todayMinimum} cards</p>
-            <div className="study-goal-metrics" aria-label="Due card load">
-              <span className="study-goal-metric overdue" title="Overdue cards" />
-              <span className="study-goal-metric-label">{overdueCount}</span>
-              <span className="study-goal-metric due" title="Due today" />
-              <span className="study-goal-metric-label">{dueTodayCount}</span>
-              <span className="study-goal-metric upcoming" title="Upcoming cards" />
-              <span className="study-goal-metric-label">{upcomingCount}</span>
+            <p className="study-quality-copy">Schedule breakdown</p>
+            <div className="study-goal-metrics" aria-label="Schedule breakdown">
+              <span className="study-goal-metric-group">
+                <span className="study-goal-metric overdue" title="Overdue cards" />
+                <span className="study-goal-metric-label">Overdue {overdueCount}</span>
+              </span>
+              <span className="study-goal-metric-group">
+                <span className="study-goal-metric due" title="Due today" />
+                <span className="study-goal-metric-label">Due today {dueTodayCount}</span>
+              </span>
+              <span className="study-goal-metric-group">
+                <span className="study-goal-metric upcoming" title="Upcoming cards" />
+                <span className="study-goal-metric-label">Scheduled later {upcomingCount}</span>
+              </span>
             </div>
             <p className="study-goal-estimate">
-              At {projectedGoal} cards/day, you&apos;ll finish in about {projectedDaysToFinish} day
+              At {projectedGoal} cards/day, you&apos;ll clear the current queue in about {projectedDaysToFinish} day
               {projectedDaysToFinish === 1 ? "" : "s"}.
             </p>
-            <p className="study-goal-estimate">Based on remaining {remainingCount} cards.</p>
+            <p className="study-goal-estimate">Based on {dueQueueCount} cards still due.</p>
             <p className="study-goal-estimate">
               Target completion day: {projectedCompletionWeekday} ({formatShortDate(projectedCompletionDateIso)})
             </p>
@@ -1237,7 +1432,6 @@ export default function StudySession({ deckId, cards }: StudySessionProps) {
         <section className="study-forecast-card" aria-label="7 day forecast">
         <header className="study-forecast-head">
           <h4>7-day forecast</h4>
-          <p className={`chip risk-${forecastRiskLevel}`}>Risk: {forecastRiskLabel}</p>
         </header>
         <div className="study-forecast-grid">
           {forecastDays.map((day) => (

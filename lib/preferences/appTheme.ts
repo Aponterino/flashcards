@@ -1,5 +1,7 @@
 export const THEME_KEY = "theme";
 export const THEME_PROFILE_KEY = "theme-profile-id";
+export const THEME_CUSTOMIZED_KEY = "theme-ever-customized";
+export const THEME_NUDGE_DISMISSED_KEY = "theme-nudge-dismissed";
 
 const LEGACY_PALETTE_IDS = [
   "cobalt",
@@ -152,4 +154,39 @@ export function getOrCreateThemeProfileId(): string {
   const profileId = createProfileId();
   window.localStorage.setItem(THEME_PROFILE_KEY, profileId);
   return profileId;
+}
+
+export function hasCustomizedTheme(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem(THEME_CUSTOMIZED_KEY) === "true";
+}
+
+export function markThemeCustomized(theme: ThemeId): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (theme !== DEFAULT_THEME) {
+    window.localStorage.setItem(THEME_CUSTOMIZED_KEY, "true");
+    window.localStorage.removeItem(THEME_NUDGE_DISMISSED_KEY);
+  }
+}
+
+export function hasDismissedThemeNudge(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem(THEME_NUDGE_DISMISSED_KEY) === "true";
+}
+
+export function dismissThemeNudge(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.setItem(THEME_NUDGE_DISMISSED_KEY, "true");
 }

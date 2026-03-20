@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import ThemePaletteSelector from "@/components/ThemePaletteSelector";
+import ThemePaletteSelector from "@/components/preferences/ThemePaletteSelector";
 
 export default function SettingsPage() {
   return (

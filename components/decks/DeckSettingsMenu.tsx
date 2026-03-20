@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 
-import { parseImportFile, type ImportedCardInput } from "@/lib/importExport";
+import { parseImportFile, type ImportedCardInput } from "@/lib/cards/cardImportExport";
 
 interface DeckSettingsMenuProps {
   deckId: string;

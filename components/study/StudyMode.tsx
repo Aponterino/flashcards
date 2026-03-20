@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { DEFAULT_DAILY_GOAL, getLocalDateISO } from "@/lib/studyCalendar";
+import { DEFAULT_DAILY_GOAL, getLocalDateISO } from "@/lib/study/studyCalendarUtils";
 import {
   buildStudyGroupsFromCards,
   buildCatchupStudySet,
@@ -13,7 +13,7 @@ import {
   type StudyCard,
   type StudyDifficulty,
   type StudyStartMode,
-} from "@/lib/studySession";
+} from "@/lib/study/studySessionUtils";
 
 interface StudyModeProps {
   deckId: string;
@@ -236,6 +236,38 @@ function buildQuizChoices(card: StudyCard, deckCards: StudyCard[]): string[] {
   return shuffleValues([correctAnswer, ...distractors]);
 }
 
+function getSessionHelpText(source: SessionSource, kind: SessionKind, quizRound: QuizRound): string {
+  if (kind === "quiz") {
+    if (quizRound === "retry") {
+      return "This retry round brings back only the cards you missed on the first pass so you can reinforce weak spots immediately.";
+    }
+
+    return "Multiple-choice quiz mode shows one prompt with four answer options from the deck. Missed cards come back in a retry round at the end.";
+  }
+
+  if (source === "daily") {
+    return "Today's Study prioritizes overdue and due-today cards first, then uses any remaining room to keep introducing unseen cards.";
+  }
+
+  if (source === "catchup") {
+    return "Catch-up Session focuses only on overdue cards and keeps the session smaller so you can reduce backlog quickly.";
+  }
+
+  if (source === "browse") {
+    return "Browse Flashcards lets you move through the deck freely without grading cards or changing their scheduling.";
+  }
+
+  if (source === "challenge") {
+    return "Progressive Challenge builds an adaptive practice set from your previous ratings instead of from due dates, leaning harder as the deck matures.";
+  }
+
+  if (source === "challenge-track") {
+    return "Challenge Track is a focused lane for one difficulty bucket, so you can browse similar cards together without grading them.";
+  }
+
+  return "Custom Study lets you choose your own session size instead of following the daily goal.";
+}
+
 export default function StudyMode({ deckId, deckName, cards, initialList, initialMode }: StudyModeProps) {
   const router = useRouter();
   const [studyCards, setStudyCards] = useState<StudyCard[]>(cards);
@@ -262,6 +294,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
   const [quizFirstPassCorrect, setQuizFirstPassCorrect] = useState(0);
   const [quizMissedCardIds, setQuizMissedCardIds] = useState<string[]>([]);
   const [quizRecoveredCardIds, setQuizRecoveredCardIds] = useState<string[]>([]);
+  const [showSessionHelp, setShowSessionHelp] = useState(false);
 
   const quizOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const quizNextButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -374,6 +407,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
       setQuizFirstPassCorrect(0);
       setQuizMissedCardIds([]);
       setQuizRecoveredCardIds([]);
+      setShowSessionHelp(false);
       setView("studying");
     },
     [deckId, todayIso]
@@ -401,7 +435,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
         return;
       }
 
-      beginSession(todayCards, "Today's Study", false, "study", "daily");
+      beginSession(todayCards, "Due Today", false, "study", "daily");
       return;
     }
 
@@ -469,6 +503,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
   const onLastCard = activeCards.length === 0 ? true : currentIndex >= activeCards.length - 1;
   const isLearnSession = sessionKind === "learn";
   const isQuizSession = sessionKind === "quiz";
+  const currentSessionHelpText = getSessionHelpText(sessionSource, sessionKind, quizRound);
   const frontFaceSizeClass = currentCard ? getStudyFaceSizeClass(currentCard.front) : "study-face-copy--default";
   const backFaceSizeClass = currentCard ? getStudyFaceSizeClass(currentCard.back) : "study-face-copy--default";
 
@@ -516,7 +551,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     }
 
     const todayCards = buildTodayStudySet(studyCards, groups, todaySessionMax);
-    beginSession(todayCards, "Today's Study", false, "study", "daily");
+    beginSession(todayCards, "Due Today", false, "study", "daily");
   }
 
   function startCatchupStudy() {
@@ -560,6 +595,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
           cardId,
           difficulty,
           contextDeckId: deckId,
+          dateIso: todayIso,
         }),
       });
 
@@ -598,7 +634,7 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
     } finally {
       setIsRating(false);
     }
-  }, [deckId]);
+  }, [deckId, todayIso]);
 
   const startRetryRound = useCallback(() => {
     if (quizMissedCardIds.length === 0) {
@@ -945,6 +981,21 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
                       : "Quiz mode · Retry"
                     : "Study mode"}
               </p>
+              <span className="study-help-anchor study-session-help-anchor" data-open={showSessionHelp ? "true" : "false"}>
+                <button
+                  aria-controls="active-session-help"
+                  aria-expanded={showSessionHelp}
+                  aria-label={`More information about ${sessionLabel}`}
+                  className="study-help-trigger"
+                  onClick={() => setShowSessionHelp((previous) => !previous)}
+                  type="button"
+                >
+                  ?
+                </button>
+                <span className="study-help-tooltip study-session-help-tooltip" role="tooltip">
+                  {currentSessionHelpText}
+                </span>
+              </span>
             </div>
             {sessionSource === "browse" && activeCards.length > 1 ? (
               <div className="study-toolbar-actions">
@@ -954,6 +1005,11 @@ export default function StudyMode({ deckId, deckName, cards, initialList, initia
               </div>
             ) : null}
           </div>
+          {showSessionHelp ? (
+            <div className="study-help-inline study-session-help-inline" id="active-session-help">
+              {currentSessionHelpText}
+            </div>
+          ) : null}
 
           {!isQuizSession ? (
             <div className={`study-flashcard-nav-row ${isLearnSession ? "learn" : ""}`}>

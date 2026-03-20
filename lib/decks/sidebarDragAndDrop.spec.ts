@@ -1,4 +1,4 @@
-import { isPointWithinDecksArea, resolveTopLevelDropAfter, TOP_LEVEL_DROP_BOTTOM_SLACK, type RootDeckRect } from "./sidebarDrag.js";
+import { isPointWithinDecksArea, resolveTopLevelDropAfter, TOP_LEVEL_DROP_BOTTOM_SLACK, type RootDeckRect } from "./sidebarDragAndDrop.js";
 
 function assert(condition: unknown, message: string): void {
   if (!condition) {

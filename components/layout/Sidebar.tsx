@@ -10,8 +10,8 @@ import {
   getOrCreateThemeProfileId,
   parseThemeId,
   resolveTheme,
-} from "@/lib/theme";
-import { isPointWithinDecksArea, resolveTopLevelDropAfter, TOP_LEVEL_DROP_BOTTOM_SLACK, type DeckAreaRect, type RootDeckRect } from "@/lib/sidebarDrag";
+} from "@/lib/preferences/appTheme";
+import { isPointWithinDecksArea, resolveTopLevelDropAfter, TOP_LEVEL_DROP_BOTTOM_SLACK, type DeckAreaRect, type RootDeckRect } from "@/lib/decks/sidebarDragAndDrop";
 
 interface SidebarDeck {
   id: string;
@@ -491,6 +491,16 @@ export default function Sidebar() {
 
       const nextTarget = resolveDropTarget(pointerX, pointerY);
       setActiveDropTarget(nextTarget);
+      if (nextTarget === "__top-level__") {
+        if (canDropToTopLevel(sourceDeckId)) {
+          void moveDeck(sourceDeckId, null, null);
+          return;
+        }
+
+        endDeckDrag();
+        return;
+      }
+
       if (!nextTarget) {
         if (canDropToTopLevel(sourceDeckId) && isPointWithinDecksArea(pointerX, pointerY, deckAreaRectRef.current, TOP_LEVEL_DROP_BOTTOM_SLACK)) {
           void moveDeck(sourceDeckId, null, null);

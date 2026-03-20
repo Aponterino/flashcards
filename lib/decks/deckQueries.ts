@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { cards, decks } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
+import { ensureDbReady, getDb } from "@/lib/core/db";
 
 export interface DeckSummary {
   id: string;

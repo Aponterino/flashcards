@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 
-import StudyMode from "@/components/StudyMode";
-import { getCardsForStudyDeck } from "@/lib/queries/cards";
-import { getDeckById } from "@/lib/queries/decks";
-import type { StudyDifficulty, StudyStartMode } from "@/lib/studySession";
+import StudyMode from "@/components/study/StudyMode";
+import { getCardsForStudyDeck } from "@/lib/cards/cardQueries";
+import { getDeckById } from "@/lib/decks/deckQueries";
+import type { StudyDifficulty, StudyStartMode } from "@/lib/study/studySessionUtils";
 
 export const dynamic = "force-dynamic";
 

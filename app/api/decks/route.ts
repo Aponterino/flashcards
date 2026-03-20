@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createDeckWithParent, DeckHierarchyError, getDecks } from "@/lib/queries/decks";
+import { createDeckWithParent, DeckHierarchyError, getDecks } from "@/lib/decks/deckQueries";
 
 export async function GET() {
   const results = await getDecks();

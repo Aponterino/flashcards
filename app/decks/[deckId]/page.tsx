@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import CardListItem from "@/components/CardListItem";
-import DeckPlacementPicker from "@/components/DeckPlacementPicker";
-import DeckSettingsMenu from "@/components/DeckSettingsMenu";
-import ImportSuccessFocus from "@/components/ImportSuccessFocus";
-import StudySession from "@/components/StudySession";
-import SwapAllCardsButton from "@/components/SwapAllCardsButton";
+import CardListItem from "@/components/cards/CardListItem";
+import SwapAllCardsButton from "@/components/cards/SwapAllCardsButton";
+import DeckPlacementPicker from "@/components/decks/DeckPlacementPicker";
+import DeckSettingsMenu from "@/components/decks/DeckSettingsMenu";
+import ImportSuccessFocus from "@/components/decks/ImportSuccessFocus";
+import StudySession from "@/components/study/StudySession";
 import {
   archiveDeckAction,
   createDeckAction,
@@ -16,10 +16,10 @@ import {
   resolveImportedCardsAction,
   updateCardAction,
   updateDeckNameAction,
-} from "@/lib/actions";
-import { getCardsByDeck, getCardsForStudyDeck, type CardRecord } from "@/lib/queries/cards";
-import { getDeckById, getDecks, getDirectChildDecks } from "@/lib/queries/decks";
-import type { StudyDifficulty } from "@/lib/studySession";
+} from "@/lib/decks/deckServerActions";
+import { getCardsByDeck, getCardsForStudyDeck, type CardRecord } from "@/lib/cards/cardQueries";
+import { getDeckById, getDecks, getDirectChildDecks } from "@/lib/decks/deckQueries";
+import type { StudyDifficulty } from "@/lib/study/studySessionUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +63,33 @@ function getCardStudyStatus(lastDifficulty: string | null): {
   }
 
   return { label: "Easy", tone: "easy" };
+}
+
+function getCardDueLabel(dueDate: string, todayIso: string, lastDifficulty: string | null): string | null {
+  if (!lastDifficulty) {
+    return null;
+  }
+
+  if (dueDate === todayIso) {
+    return "Due today";
+  }
+
+  if (dueDate < todayIso) {
+    const [dueYear, dueMonth, dueDay] = dueDate.split("-").map(Number);
+    const [todayYear, todayMonth, todayDay] = todayIso.split("-").map(Number);
+    const due = new Date(dueYear, dueMonth - 1, dueDay);
+    const today = new Date(todayYear, todayMonth - 1, todayDay);
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const overdueDays = Math.max(1, Math.round((today.getTime() - due.getTime()) / msPerDay));
+    return overdueDays === 1 ? "Overdue by 1 day" : `Overdue by ${overdueDays} days`;
+  }
+
+  const [year, month, day] = dueDate.split("-").map(Number);
+  const formatted = new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `Due ${formatted}`;
 }
 
 function getTodayLocalDateISO(): string {
@@ -445,6 +472,7 @@ export default async function DeckPage({ params, searchParams }: DeckPageProps) 
                     <CardListItem
                       cardId={card.id}
                       deckId={card.deckId}
+                      dueLabel={getCardDueLabel(card.dueDate, todayIso, card.lastDifficulty)}
                       viewDeckId={deckId}
                       initialBack={card.back}
                       initialFront={card.front}

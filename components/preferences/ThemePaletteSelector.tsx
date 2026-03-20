@@ -9,9 +9,10 @@ import {
   type ThemeId,
   applyThemeAttributes,
   getOrCreateThemeProfileId,
+  markThemeCustomized,
   parseThemeId,
   resolveTheme,
-} from "@/lib/theme";
+} from "@/lib/preferences/appTheme";
 
 export default function ThemePaletteSelector() {
   const [theme, setTheme] = useState<ThemeId>(DEFAULT_THEME);
@@ -67,6 +68,7 @@ export default function ThemePaletteSelector() {
     setTheme(nextTheme);
     window.localStorage.setItem(THEME_KEY, nextTheme);
     applyThemeAttributes(nextTheme);
+    markThemeCustomized(nextTheme);
     setIsOpen(false);
 
     const profileId = getOrCreateThemeProfileId();

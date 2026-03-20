@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { parseThemeId } from "@/lib/theme";
-import { getUserThemePreference, saveUserThemePreference } from "@/lib/queries/userPreferences";
+import { parseThemeId } from "@/lib/preferences/appTheme";
+import { getUserThemePreference, saveUserThemePreference } from "@/lib/preferences/userPreferenceQueries";
 
 interface ThemeUpdatePayload {
   profileId?: unknown;

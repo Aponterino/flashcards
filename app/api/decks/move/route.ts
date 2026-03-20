@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { DeckHierarchyError, moveDeckToParent } from "@/lib/queries/decks";
+import { DeckHierarchyError, moveDeckToParent } from "@/lib/decks/deckQueries";
 
 interface MoveDeckPayload {
   deckId?: unknown;

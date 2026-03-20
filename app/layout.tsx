@@ -2,8 +2,8 @@ import "./globals.css";
 
 import { Suspense, type ReactNode } from "react";
 
-import AppHeader from "@/components/AppHeader";
-import Sidebar from "@/components/Sidebar";
+import AppHeader from "@/components/layout/AppHeader";
+import Sidebar from "@/components/layout/Sidebar";
 
 export const metadata = {
   title: "Study Buddy Flashcards",

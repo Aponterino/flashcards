@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { getLocalDateISO } from "@/lib/studyCalendar";
+import { getLocalDateISO } from "@/lib/study/studyCalendarUtils";
 import {
   getDeckStudyCalendar,
   markDeckStudyDayStarted,
   updateDeckDailyGoal,
   type StudyCalendarDayRecord,
-} from "@/lib/queries/studyCalendar";
+} from "@/lib/study/studyCalendarQueries";
 
 interface CalendarUpdatePayload {
   action?: unknown;

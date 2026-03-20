@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { restoreDeckVersionAction, restoreVersionCardAction } from "@/lib/actions";
-import { getCardsByDeck } from "@/lib/queries/cards";
-import { getDeckById } from "@/lib/queries/decks";
-import { getDeckVersionCards, getDeckVersions, type DeckVersionCardRecord } from "@/lib/queries/versions";
+import { getCardsByDeck } from "@/lib/cards/cardQueries";
+import { getDeckById } from "@/lib/decks/deckQueries";
+import { restoreDeckVersionAction, restoreVersionCardAction } from "@/lib/decks/deckServerActions";
+import { getDeckVersionCards, getDeckVersions, type DeckVersionCardRecord } from "@/lib/decks/deckVersionQueries";
 
 export const dynamic = "force-dynamic";
 

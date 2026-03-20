@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { cards } from "@/db/schema";
-import { ensureDbReady, getDb } from "@/lib/db";
+import { ensureDbReady, getDb } from "@/lib/core/db";
 
 function getTodayLocalDateISO(): string {
   const now = new Date();

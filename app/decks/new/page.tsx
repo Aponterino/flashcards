@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { createDeckAction } from "@/lib/actions";
+import { createDeckAction } from "@/lib/decks/deckServerActions";
 
 interface NewDeckPageProps {
   searchParams: Promise<{ hierarchyError?: string }>;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { createDeckVersionSnapshot } from "@/lib/queries/versions";
-import { deleteCardsByIds } from "@/lib/queries/cards";
+import { deleteCardsByIds } from "@/lib/cards/cardQueries";
+import { createDeckVersionSnapshot } from "@/lib/decks/deckVersionQueries";
 
 interface DeleteCardPayload {
   deckId?: string;

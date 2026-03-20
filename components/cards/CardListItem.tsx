@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 interface CardListItemProps {
   cardId: string;
   deckId: string;
+  dueLabel: string | null;
   viewDeckId?: string;
   initialBack: string;
   initialFront: string;
@@ -17,6 +18,7 @@ interface CardListItemProps {
 export default function CardListItem({
   cardId,
   deckId,
+  dueLabel,
   viewDeckId,
   initialBack,
   initialFront,
@@ -260,7 +262,10 @@ export default function CardListItem({
           </svg>
           <span>{isDeletingSingle ? "Deleting..." : "Delete"}</span>
         </button>
-        <span className={`chip study-status-chip study-status-${statusTone}`}>{statusLabel}</span>
+        <div className="card-status-meta">
+          <span className={`chip study-status-chip study-status-${statusTone}`}>{statusLabel}</span>
+          {dueLabel ? <p className={`card-due-label ${transitionClass}`}>{dueLabel}</p> : null}
+        </div>
       </div>
     </>
   );

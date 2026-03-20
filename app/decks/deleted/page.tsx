@@ -1,8 +1,8 @@
 import Link from "next/link";
 
-import PurgeDeletedDecksButton from "@/components/PurgeDeletedDecksButton";
-import { purgeDeletedDecksAction, restoreDeletedDeckAction } from "@/lib/actions";
-import { getDeletedDecks } from "@/lib/queries/decks";
+import PurgeDeletedDecksButton from "@/components/decks/PurgeDeletedDecksButton";
+import { getDeletedDecks } from "@/lib/decks/deckQueries";
+import { purgeDeletedDecksAction, restoreDeletedDeckAction } from "@/lib/decks/deckServerActions";
 
 export const dynamic = "force-dynamic";
 
